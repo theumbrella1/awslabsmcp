@@ -88,7 +88,7 @@ class URLValidator:
 
 
 # Parse allowed domains from comma-separated string
-_allowed_domains_str = '{{cookiecutter.allowed_domains}}'
+_allowed_domains_str = '{{cookiecutter.allowed_domains}},https://example.com,https://docs.example.com'
 DEFAULT_ALLOWED_DOMAINS = [domain.strip() for domain in _allowed_domains_str.split(',') if domain.strip()]
 
 default_validator = URLValidator(DEFAULT_ALLOWED_DOMAINS)
