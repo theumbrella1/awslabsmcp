@@ -18,7 +18,7 @@ from awslabs.amazon_bedrock_agentcore_mcp_server.server import (
     fetch_agentcore_doc,
     search_agentcore_docs,
 )
-from awslabs.amazon_bedrock_agentcore_mcp_server.utils import cache, doc_fetcher, indexer
+from awslabs.amazon_bedrock_agentcore_mcp_server.utils import doc_fetcher, indexer
 from unittest.mock import Mock, patch
 
 
@@ -67,7 +67,7 @@ class TestSearchDocs:
             assert result[0]['score'] == 0.95
             assert result[0]['snippet'] == 'Test snippet...'
             mock_ensure_ready.assert_called_once()
-            mock_index.search.assert_called_once_with('bedrock agentcore', k=5)
+            assert mock_index.search.call_count == 2
 
     @patch('awslabs.amazon_bedrock_agentcore_mcp_server.utils.cache.ensure_ready')
     @patch('awslabs.amazon_bedrock_agentcore_mcp_server.utils.cache.get_index')
@@ -138,8 +138,8 @@ class TestSearchDocs:
             result = search_agentcore_docs('test', k=10)
 
             # Assert
-            # Should only hydrate top SNIPPET_HYDRATE_MAX results
-            assert mock_ensure_page.call_count == min(len(docs), cache.SNIPPET_HYDRATE_MAX)
+            # Should hydrate content for all results to enable content-aware ranking
+            assert mock_ensure_page.call_count == len(docs)
             assert len(result) == 10
 
 

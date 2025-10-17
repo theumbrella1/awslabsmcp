@@ -76,13 +76,13 @@ def search_agentcore_docs(query: str, k: int = 5) -> List[Dict[str, Any]]:
     results = index.search(query, k=k) if index else []
     url_cache = cache.get_url_cache()
 
-    # Collect top-k URLs that need hydration (no content yet)
-    # Simplified: Direct hydration in one pass
-    top = results[: min(len(results), cache.SNIPPET_HYDRATE_MAX)]
-    for _, doc in top:
-        cached = url_cache.get(doc.uri)
-        if cached is None or not cached.content:
-            cache.ensure_page(doc.uri)
+    # Fetch content for all results to enable content-aware ranking
+    for _, doc in results:
+        cache.ensure_page(doc.uri)
+
+    # Re-rank with content now available
+    if index:
+        results = index.search(query, k=k)
 
     # Build response with real content snippets when available
     return_docs: List[Dict[str, Any]] = []

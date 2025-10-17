@@ -127,6 +127,21 @@ class IndexSearch:
                 self.doc_frequency[tok] = self.doc_frequency.get(tok, 0) + 1
                 seen.add(tok)
 
+    def update_doc_content(self, uri: str, new_content: str) -> bool:
+        """Update the content of an existing document in the index."""
+        # Find the document by URI
+        for i, doc in enumerate(self.docs):
+            if doc.uri == uri:
+                # Update the document content
+                self.docs[i] = Doc(
+                    uri=doc.uri,
+                    display_title=doc.display_title,
+                    content=new_content,
+                    index_title=doc.index_title,
+                )
+                return True
+        return False
+
     def search(self, query: str, k: int = 8) -> list[tuple[float, Doc]]:
         """Search the index and return ranked results.
 

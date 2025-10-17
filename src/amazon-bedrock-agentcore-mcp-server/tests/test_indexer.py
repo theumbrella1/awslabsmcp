@@ -360,3 +360,43 @@ class TestIndexer:
         # Both should be found, but short content should get higher title boost
         scores = [score for score, _ in results]
         assert all(score > 0 for score in scores)
+
+    def test_update_doc_content_success(self):
+        """Test update_doc_content successfully updates document content."""
+        # Arrange
+        index = indexer.IndexSearch()
+        doc = indexer.Doc(
+            uri='https://example.com/doc',
+            display_title='Test Document',
+            content='',  # Empty content initially
+            index_title='Test Document',
+        )
+        index.add(doc)
+
+        new_content = 'This is updated content with new keywords.'
+
+        # Act
+        result = index.update_doc_content('https://example.com/doc', new_content)
+
+        # Assert
+        assert result is True
+        assert index.docs[0].content == new_content
+
+    def test_update_doc_content_nonexistent_uri(self):
+        """Test update_doc_content returns False for nonexistent URI."""
+        # Arrange
+        index = indexer.IndexSearch()
+        doc = indexer.Doc(
+            uri='https://example.com/doc',
+            display_title='Test Document',
+            content='Original content',
+            index_title='Test Document',
+        )
+        index.add(doc)
+
+        # Act
+        result = index.update_doc_content('https://example.com/nonexistent', 'New content')
+
+        # Assert
+        assert result is False
+        assert index.docs[0].content == 'Original content'  # Should be unchanged
