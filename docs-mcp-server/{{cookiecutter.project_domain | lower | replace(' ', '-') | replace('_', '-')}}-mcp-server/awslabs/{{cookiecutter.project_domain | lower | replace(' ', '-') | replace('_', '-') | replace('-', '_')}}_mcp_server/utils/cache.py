@@ -24,8 +24,6 @@ _URL_CACHE: Dict[str, doc_fetcher.Page | None] = {}
 _URL_TITLES: Dict[str, str] = {}  # url -> curated title from llms.txt
 _LINKS_LOADED = False
 
-SNIPPET_HYDRATE_MAX = 5  # how many top results to hydrate with content
-
 
 def load_links_only() -> None:
     """Parse llms.txt files and index curated titles without fetching content.
@@ -85,13 +83,18 @@ def ensure_page(url: str) -> doc_fetcher.Page | None:
 
     """
     page = _URL_CACHE.get(url)
-    if page is not None:
+    if page is not None and page.content:
         return page
     try:
         raw = doc_fetcher.fetch_and_clean(url)
         display_title = text_processor.format_display_title(url, raw.title, _URL_TITLES)
         page = doc_fetcher.Page(url=url, title=display_title, content=raw.content)
         _URL_CACHE[url] = page
+
+        # Update the search index with the new content
+        if _INDEX is not None:
+            _INDEX.update_doc_content(url, raw.content)
+
         return page
     except Exception:
         return None
