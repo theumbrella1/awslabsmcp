@@ -14,6 +14,7 @@
 
 """awslabs AWS Bedrock AgentCore MCP Server implementation."""
 
+from .tools import agents, configure, identity, invoke, launch, logs, memory, session, status
 from .utils import cache, text_processor
 from mcp.server.fastmcp import FastMCP
 from typing import Any, Dict, List
@@ -21,6 +22,16 @@ from typing import Any, Dict, List
 
 APP_NAME = 'amazon-bedrock-agentcore-mcp-server'
 mcp = FastMCP(APP_NAME)
+
+mcp.tool()(agents.manage_agentcore_agents)
+mcp.tool()(invoke.invoke_agentcore_runtime)
+mcp.tool()(status.get_agentcore_status)
+mcp.tool()(session.manage_agentcore_session)
+mcp.tool()(logs.access_agentcore_logs)
+mcp.tool()(memory.manage_agentcore_memory)
+mcp.tool()(identity.manage_agentcore_identity)
+mcp.tool()(configure.configure_agentcore_agent)
+mcp.tool()(launch.deploy_agentcore_agent)
 
 
 @mcp.tool()
