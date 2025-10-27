@@ -87,10 +87,10 @@ def detect_entrypoint(source_path: Path) -> Optional[Path]:
 
 def infer_agent_name(entrypoint_path: Path) -> str:
     """Infer agent name from entrypoint path."""
-    rel_path = str(entrypoint_path.relative_to(Path.cwd()))
-    if rel_path.endswith('.py'):
-        rel_path = rel_path[:-3]
-    name = rel_path.replace('/', '_').replace('\\', '_').replace(' ', '_').replace('-', '_')
+    # Use just the filename without extension for agent name
+    name = entrypoint_path.stem
+    # Replace invalid characters with underscores
+    name = name.replace(' ', '_').replace('-', '_')
     return name
 
 
@@ -729,8 +729,6 @@ def configure_agentcore_agent(  # type: ignore[return]
     if verbose:
         log.setLevel(logging.DEBUG)
 
-    config_path = Path.cwd() / '.bedrock_agentcore.yaml'
-
     try:
         if action == 'configure':
             if not entrypoint:
@@ -745,6 +743,10 @@ def configure_agentcore_agent(  # type: ignore[return]
                     'status': 'error',
                     'content': [{'text': f'Entrypoint file not found: {entrypoint}'}],
                 }
+
+            # Use the directory of the entrypoint file as the working directory
+            working_dir = entrypoint_path.parent
+            config_path = working_dir / '.bedrock_agentcore.yaml'
 
             # Auto-detect agent name if not provided
             if not agent_name:
@@ -826,8 +828,8 @@ def configure_agentcore_agent(  # type: ignore[return]
 
             # Generate Dockerfile in proper directory structure
             log.info('Generating Dockerfile...')
-            # Always use .bedrock_agentcore/agent_name/ directory
-            agentcore_dir = Path.cwd() / '.bedrock_agentcore' / agent_name
+            # Always use .bedrock_agentcore/agent_name/ directory in the entrypoint's directory
+            agentcore_dir = working_dir / '.bedrock_agentcore' / agent_name
             agentcore_dir.mkdir(parents=True, exist_ok=True)
             output_dir = agentcore_dir
 
@@ -850,7 +852,7 @@ def configure_agentcore_agent(  # type: ignore[return]
             # Build configuration
             agent_config = {
                 'name': agent_name,
-                'entrypoint': str(entrypoint_path.relative_to(Path.cwd())),
+                'entrypoint': str(entrypoint_path),  # Store as absolute path
                 'platform': ContainerRuntime.DEFAULT_PLATFORM,
                 'container_runtime': runtime.runtime,
                 'aws': {
@@ -907,6 +909,14 @@ def configure_agentcore_agent(  # type: ignore[return]
             }
 
         elif action == 'status':
+            # For status action, use current directory or entrypoint directory if provided
+            if entrypoint:
+                entrypoint_path = Path(entrypoint).resolve()
+                working_dir = entrypoint_path.parent
+                config_path = working_dir / '.bedrock_agentcore.yaml'
+            else:
+                config_path = Path.cwd() / '.bedrock_agentcore.yaml'
+
             if not config_path.exists():
                 return {
                     'status': 'error',
@@ -983,6 +993,14 @@ def configure_agentcore_agent(  # type: ignore[return]
                 }
 
         elif action == 'list':
+            # For list action, use current directory or entrypoint directory if provided
+            if entrypoint:
+                entrypoint_path = Path(entrypoint).resolve()
+                working_dir = entrypoint_path.parent
+                config_path = working_dir / '.bedrock_agentcore.yaml'
+            else:
+                config_path = Path.cwd() / '.bedrock_agentcore.yaml'
+
             if not config_path.exists():
                 return {
                     'status': 'success',

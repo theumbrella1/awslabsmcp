@@ -46,6 +46,7 @@ def deploy_agentcore_agent(
     auto_update_on_conflict: bool = False,
     env_vars: Optional[Dict[str, str]] = None,
     region: str = 'us-west-2',
+    entrypoint: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Deploy and manage AWS Bedrock AgentCore agent deployments with complete lifecycle support.
 
@@ -303,6 +304,11 @@ def deploy_agentcore_agent(
             Must match region used in configure tool
             Default: us-west-2
 
+        entrypoint: Optional path to agent entrypoint file
+            Used to locate .bedrock_agentcore.yaml when it's in a different directory
+            If provided, looks for config in the entrypoint's directory
+            Example: "/Volumes/workplace/agentcore-test/weather_agent.py"
+
     Returns:
         Dict containing status and response content in the format:
         {
@@ -379,7 +385,8 @@ def deploy_agentcore_agent(
         - **ARM64 Optimization**: CodeBuild uses ARM64 for cost and performance benefits
     """
     try:
-        config_path = Path.cwd() / '.bedrock_agentcore.yaml'
+        # Try to find config file - use entrypoint to locate it if provided
+        config_path = _find_config_file(entrypoint)
 
         if action == 'launch':
             return _launch_agent(
@@ -405,6 +412,26 @@ def deploy_agentcore_agent(
     except Exception as e:
         logger.error(f'AgentCore launch error: {e}', exc_info=True)
         return {'status': 'error', 'content': [{'text': f'Error: {str(e)}'}]}
+
+
+def _find_config_file(entrypoint: Optional[str] = None) -> Path:
+    """Find .bedrock_agentcore.yaml configuration file.
+
+    If entrypoint is provided, looks in the entrypoint's directory.
+    Otherwise, looks in the current directory.
+    """
+    if entrypoint:
+        # Use entrypoint's directory
+        entrypoint_path = Path(entrypoint).resolve()
+        if entrypoint_path.exists():
+            config_path = entrypoint_path.parent / '.bedrock_agentcore.yaml'
+            if config_path.exists():
+                logger.info(f'Found config in entrypoint directory: {config_path}')
+                return config_path
+
+    # Default to current directory
+    config_path = Path.cwd() / '.bedrock_agentcore.yaml'
+    return config_path
 
 
 def _load_config(config_path: Path) -> Dict[str, Any]:
@@ -473,6 +500,16 @@ def _launch_agent(
     agent_config = _get_agent_config(project_config, agent_name)
     actual_agent_name = agent_config['name']
 
+    # Update config_path based on entrypoint location (if entrypoint is absolute path)
+    entrypoint = agent_config.get('entrypoint')
+    if entrypoint:
+        entrypoint_path = Path(entrypoint)
+        if entrypoint_path.is_absolute():
+            # Entrypoint is absolute, use its directory for config
+            working_dir = entrypoint_path.parent
+            config_path = working_dir / '.bedrock_agentcore.yaml'
+            logger.info(f'Using config from entrypoint directory: {config_path}')
+
     logger.info(f"Launching agent '{actual_agent_name}' in {mode} mode...")
 
     # Add memory configuration to env_vars if available
@@ -521,8 +558,18 @@ def _launch_with_codebuild(
         f"Starting CodeBuild ARM64 deployment for '{agent_name}' to account {account_id} ({region})"
     )
 
-    # Step 0: Check for Dockerfile
-    dockerfile_dir = config_path.parent / '.bedrock_agentcore' / agent_name
+    # Step 0: Check for Dockerfile - use entrypoint directory if absolute path
+    entrypoint = agent_config.get('entrypoint')
+    if entrypoint:
+        entrypoint_path = Path(entrypoint)
+        if entrypoint_path.is_absolute():
+            working_dir = entrypoint_path.parent
+            dockerfile_dir = working_dir / '.bedrock_agentcore' / agent_name
+        else:
+            dockerfile_dir = config_path.parent / '.bedrock_agentcore' / agent_name
+    else:
+        dockerfile_dir = config_path.parent / '.bedrock_agentcore' / agent_name
+
     dockerfile_path = dockerfile_dir / 'Dockerfile'
 
     if not dockerfile_path.exists():
@@ -570,9 +617,23 @@ def _launch_with_codebuild(
             agent_name=agent_name,
         )
 
-    # Upload source
-    source_dir = agent_config.get('source_path') or '.'
-    dockerfile_dir = config_path.parent / '.bedrock_agentcore' / agent_name
+    # Upload source - use entrypoint directory as base
+    entrypoint = agent_config.get('entrypoint')
+    if entrypoint:
+        entrypoint_path = Path(entrypoint)
+        if entrypoint_path.is_absolute():
+            # Use entrypoint's directory as working directory
+            working_dir = entrypoint_path.parent
+            source_dir = agent_config.get('source_path') or str(working_dir)
+            dockerfile_dir = working_dir / '.bedrock_agentcore' / agent_name
+        else:
+            # Relative path, use config directory
+            source_dir = agent_config.get('source_path') or str(config_path.parent)
+            dockerfile_dir = config_path.parent / '.bedrock_agentcore' / agent_name
+    else:
+        source_dir = agent_config.get('source_path') or str(config_path.parent)
+        dockerfile_dir = config_path.parent / '.bedrock_agentcore' / agent_name
+
     source_location = codebuild_service.upload_source(
         agent_name=agent_name, source_dir=source_dir, dockerfile_dir=str(dockerfile_dir)
     )
