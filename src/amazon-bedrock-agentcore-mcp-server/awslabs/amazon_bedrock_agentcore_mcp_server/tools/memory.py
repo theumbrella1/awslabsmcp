@@ -160,7 +160,7 @@ def manage_agentcore_memory(
         data_client = boto3.client('bedrock-agentcore', region_name=region)
 
         if verbose:
-            print(f'✅ Initialized clients for region: {region}', flush=True)
+            print(f'Initialized clients for region: {region}', flush=True)
 
         # Route to appropriate operation
         if action == 'create':
@@ -171,7 +171,7 @@ def manage_agentcore_memory(
                 }
 
             if verbose:
-                print(f'📝 Creating memory: {name}', flush=True)
+                print(f'Creating memory: {name}', flush=True)
 
             params = {
                 'name': name,
@@ -185,7 +185,7 @@ def manage_agentcore_memory(
                 params['memoryStrategies'] = strategies
                 if verbose:
                     print(
-                        f'🧠 Memory strategies: {len(strategies)} configured',
+                        f'Memory strategies: {len(strategies)} configured',
                         flush=True,
                     )
             if memory_execution_role_arn:
@@ -194,7 +194,7 @@ def manage_agentcore_memory(
                 params['encryptionKeyArn'] = encryption_key_arn
 
             if verbose:
-                print('🚀 Calling CreateMemory API...', flush=True)
+                print('Calling CreateMemory API...', flush=True)
 
             response = control_client.create_memory(**params)
             memory = response['memory']
@@ -204,12 +204,12 @@ def manage_agentcore_memory(
 
             if verbose:
                 print(
-                    f'✅ Memory created with ID: {memory_id}, Status: {status}',
+                    f'Memory created with ID: {memory_id}, Status: {status}',
                     flush=True,
                 )
 
             result_content = [
-                {'text': '✅ **Memory Created Successfully**'},
+                {'text': '**Memory Created Successfully**'},
                 {'text': f'**Memory ID:** {memory_id}'},
                 {'text': f'**Status:** {status}'},
                 {'text': f'**Region:** {region}'},
@@ -217,10 +217,10 @@ def manage_agentcore_memory(
 
             # If wait_for_active is True, poll until ACTIVE
             if wait_for_active and status != 'ACTIVE':
-                result_content.append({'text': '\n⏳ **Waiting for memory to become ACTIVE...**'})
+                result_content.append({'text': '\n**Waiting for memory to become ACTIVE...**'})
 
                 if verbose:
-                    print(f'⏳ Polling for ACTIVE status (max {max_wait}s)...', flush=True)
+                    print(f'Polling for ACTIVE status (max {max_wait}s)...', flush=True)
 
                 start_time = time.time()
                 while time.time() - start_time < max_wait:
@@ -232,43 +232,43 @@ def manage_agentcore_memory(
 
                         if verbose:
                             print(
-                                f'📊 Status check {elapsed}s: {current_status}',
+                                f'Status check {elapsed}s: {current_status}',
                                 flush=True,
                             )
 
                         if current_status == 'ACTIVE':
                             result_content.append(
-                                {'text': f'\n✅ **Memory is ACTIVE** (took {elapsed}s)'}
+                                {'text': f'\n**Memory is ACTIVE** (took {elapsed}s)'}
                             )
                             if verbose:
-                                print(f'🎉 Memory is ACTIVE after {elapsed}s!', flush=True)
+                                print(f'Memory is ACTIVE after {elapsed}s!', flush=True)
                             break
                         elif current_status == 'FAILED':
                             failure_reason = status_response['memory'].get(
                                 'failureReason', 'Unknown'
                             )
                             if verbose:
-                                print(f'❌ Memory creation failed: {failure_reason}')
+                                print(f'Memory creation failed: {failure_reason}')
                             return {
                                 'status': 'error',
                                 'content': [
-                                    {'text': f'❌ **Memory creation failed:** {failure_reason}'}
+                                    {'text': f'**Memory creation failed:** {failure_reason}'}
                                 ],
                             }
 
                         time.sleep(10)
                     except ClientError as e:
                         if verbose:
-                            print(f'❌ Error checking status: {e}', flush=True)
+                            print(f'Error checking status: {e}', flush=True)
                         return {
                             'status': 'error',
                             'content': [{'text': f'Error checking status: {str(e)}'}],
                         }
                 else:
                     if verbose:
-                        print(f'⚠️ Timeout after {max_wait}s - still provisioning')
+                        print(f'Timeout after {max_wait}s - still provisioning')
                     result_content.append(
-                        {'text': f'\n⚠️ **Timeout** after {max_wait}s - memory still provisioning'}
+                        {'text': f'\n**Timeout** after {max_wait}s - memory still provisioning'}
                     )
 
             return {'status': 'success', 'content': result_content}
@@ -281,13 +281,13 @@ def manage_agentcore_memory(
                 }
 
             if verbose:
-                print(f'🔍 Getting memory details: {memory_id}', flush=True)
+                print(f'Getting memory details: {memory_id}', flush=True)
 
             response = control_client.get_memory(memoryId=memory_id)
             memory = response['memory']
 
             if verbose:
-                print(f'✅ Retrieved memory: {memory.get("name")}', flush=True)
+                print(f'Retrieved memory: {memory.get("name")}', flush=True)
 
             return {
                 'status': 'success',
@@ -299,7 +299,7 @@ def manage_agentcore_memory(
 
         elif action == 'list':
             if verbose:
-                print(f'📋 Listing memories (max {max_results})...', flush=True)
+                print(f'Listing memories (max {max_results})...', flush=True)
 
             response = control_client.list_memories(maxResults=min(max_results, 100))
             memories = response.get('memories', [])
@@ -312,7 +312,7 @@ def manage_agentcore_memory(
                 remaining = max_results - len(memories)
 
                 if verbose:
-                    print(f'📄 Fetching page {page} (total: {len(memories)} so far)...')
+                    print(f'Fetching page {page} (total: {len(memories)} so far)...')
 
                 response = control_client.list_memories(
                     maxResults=min(remaining, 100), nextToken=next_token
@@ -321,7 +321,7 @@ def manage_agentcore_memory(
                 next_token = response.get('nextToken')
 
             if verbose:
-                print(f'✅ Found {len(memories)} memories total', flush=True)
+                print(f'Found {len(memories)} memories total', flush=True)
 
             return {
                 'status': 'success',
@@ -339,17 +339,17 @@ def manage_agentcore_memory(
                 }
 
             if verbose:
-                print(f'🗑️ Deleting memory: {memory_id}', flush=True)
+                print(f'Deleting memory: {memory_id}', flush=True)
 
             control_client.delete_memory(memoryId=memory_id, clientToken=str(uuid.uuid4()))
 
             if verbose:
-                print('✅ Memory deleted successfully', flush=True)
+                print('Memory deleted successfully', flush=True)
 
             return {
                 'status': 'success',
                 'content': [
-                    {'text': '✅ **Memory Deleted Successfully**'},
+                    {'text': '**Memory Deleted Successfully**'},
                     {'text': f'**Memory ID:** {memory_id}'},
                 ],
             }
@@ -366,7 +366,7 @@ def manage_agentcore_memory(
                 }
 
             if verbose:
-                print(f'💬 Creating event for actor: {actor_id}, session: {session_id}')
+                print(f'Creating event for actor: {actor_id}, session: {session_id}')
 
             # Normalize event_payload format
             if isinstance(event_payload, list):
@@ -401,17 +401,17 @@ def manage_agentcore_memory(
                 params['sessionId'] = session_id
 
             if verbose:
-                print('🚀 Calling CreateEvent API...', flush=True)
+                print('Calling CreateEvent API...', flush=True)
 
             response = data_client.create_event(**params)
 
             if verbose:
-                print('✅ Event created successfully', flush=True)
+                print('Event created successfully', flush=True)
 
             return {
                 'status': 'success',
                 'content': [
-                    {'text': '✅ **Event Created Successfully**'},
+                    {'text': '**Event Created Successfully**'},
                     {'text': f'**Event ID:** {response.get("eventId")}'},
                     {'text': f'**Memory ID:** {memory_id}'},
                 ],
@@ -427,8 +427,8 @@ def manage_agentcore_memory(
                 }
 
             if verbose:
-                print(f'🔎 Retrieving memories from namespace: {namespace}', flush=True)
-                print(f'🔎 Search query: {search_query}, top_k: {top_k}', flush=True)
+                print(f'Retrieving memories from namespace: {namespace}', flush=True)
+                print(f'Search query: {search_query}, top_k: {top_k}', flush=True)
 
             params = {
                 'memoryId': memory_id,
@@ -440,7 +440,7 @@ def manage_agentcore_memory(
             records = response.get('memoryRecords', [])
 
             if verbose:
-                print(f'✅ Retrieved {len(records)} memory records', flush=True)
+                print(f'Retrieved {len(records)} memory records', flush=True)
 
             return {
                 'status': 'success',
@@ -458,7 +458,7 @@ def manage_agentcore_memory(
                 }
 
             if verbose:
-                print(f'👥 Listing actors for memory: {memory_id}', flush=True)
+                print(f'Listing actors for memory: {memory_id}', flush=True)
 
             params = {'memoryId': memory_id, 'maxResults': min(max_results, 100)}
 
@@ -466,7 +466,7 @@ def manage_agentcore_memory(
             actors = response.get('actors', [])
 
             if verbose:
-                print(f'✅ Found {len(actors)} actors', flush=True)
+                print(f'Found {len(actors)} actors', flush=True)
 
             return {
                 'status': 'success',
@@ -484,7 +484,7 @@ def manage_agentcore_memory(
                 }
 
             if verbose:
-                print(f'📱 Listing sessions for actor: {actor_id}', flush=True)
+                print(f'Listing sessions for actor: {actor_id}', flush=True)
 
             params = {
                 'memoryId': memory_id,
@@ -496,7 +496,7 @@ def manage_agentcore_memory(
             sessions = response.get('sessions', [])
 
             if verbose:
-                print(f'✅ Found {len(sessions)} sessions', flush=True)
+                print(f'Found {len(sessions)} sessions', flush=True)
 
             return {
                 'status': 'success',
@@ -514,13 +514,13 @@ def manage_agentcore_memory(
                 }
 
             if verbose:
-                print(f'📊 Checking status for memory: {memory_id}', flush=True)
+                print(f'Checking status for memory: {memory_id}', flush=True)
 
             response = control_client.get_memory(memoryId=memory_id)
             status = response['memory']['status']
 
             if verbose:
-                print(f'✅ Memory status: {status}', flush=True)
+                print(f'Memory status: {status}', flush=True)
 
             return {
                 'status': 'success',
@@ -546,7 +546,7 @@ def manage_agentcore_memory(
         error_message = e.response.get('Error', {}).get('Message', str(e))
 
         if verbose:
-            print(f'❌ AWS Error: {error_code} - {error_message}', flush=True)
+            print(f'AWS Error: {error_code} - {error_message}', flush=True)
 
         return {
             'status': 'error',
@@ -559,7 +559,7 @@ def manage_agentcore_memory(
 
     except Exception as e:
         if verbose:
-            print(f'❌ Unexpected Error: {str(e)}', flush=True)
+            print(f'Unexpected Error: {str(e)}', flush=True)
 
         return {
             'status': 'error',

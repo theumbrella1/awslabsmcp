@@ -117,7 +117,7 @@ def manage_agentcore_identity(
         client = boto3.client('bedrock-agentcore-control', region_name=region)
 
         if verbose:
-            print(f'✅ Initialized client for region: {region}', flush=True)
+            print(f'Initialized client for region: {region}', flush=True)
 
         # Route to appropriate operation
         if action == 'create':
@@ -162,7 +162,7 @@ def manage_agentcore_identity(
                 }
 
             if verbose:
-                print(f'🔍 Getting {provider_type} provider: {name}', flush=True)
+                print(f'Getting {provider_type} provider: {name}', flush=True)
 
             if provider_type == 'oauth2':
                 response = client.get_oauth2_credential_provider(name=name)
@@ -184,7 +184,7 @@ def manage_agentcore_identity(
                 }
 
             if verbose:
-                print(f'✅ Retrieved {provider_type} provider', flush=True)
+                print(f'Retrieved {provider_type} provider', flush=True)
 
             return {
                 'status': 'success',
@@ -197,7 +197,7 @@ def manage_agentcore_identity(
         elif action == 'list':
             if verbose:
                 print(
-                    f'📋 Listing {provider_type} providers (max {max_results})...',
+                    f'Listing {provider_type} providers (max {max_results})...',
                     flush=True,
                 )
 
@@ -231,7 +231,7 @@ def manage_agentcore_identity(
 
                 if verbose:
                     print(
-                        f'📄 Fetching next page (total: {len(items)} so far)...',
+                        f'Fetching next page (total: {len(items)} so far)...',
                         flush=True,
                     )
 
@@ -254,7 +254,7 @@ def manage_agentcore_identity(
                 next_token = response.get('nextToken')
 
             if verbose:
-                print(f'✅ Found {len(items)} {provider_type} providers', flush=True)
+                print(f'Found {len(items)} {provider_type} providers', flush=True)
 
             return {
                 'status': 'success',
@@ -291,12 +291,12 @@ def manage_agentcore_identity(
                 }
 
             if verbose:
-                print(f'✅ {provider_type} provider deleted', flush=True)
+                print(f'{provider_type} provider deleted', flush=True)
 
             return {
                 'status': 'success',
                 'content': [
-                    {'text': f'✅ **{provider_type.upper()} Provider Deleted**'},
+                    {'text': f'**{provider_type.upper()} Provider Deleted**'},
                     {'text': f'**Name:** {name}'},
                 ],
             }
@@ -309,7 +309,7 @@ def manage_agentcore_identity(
                 }
 
             if verbose:
-                print(f'🔄 Updating {provider_type} provider: {name}', flush=True)
+                print(f'Updating {provider_type} provider: {name}', flush=True)
 
             if provider_type == 'oauth2':
                 return _update_oauth2_provider(
@@ -339,12 +339,12 @@ def manage_agentcore_identity(
 
         elif action == 'get_vault':
             if verbose:
-                print('🔐 Getting token vault configuration...', flush=True)
+                print('Getting token vault configuration...', flush=True)
 
             response = client.get_token_vault()
 
             if verbose:
-                print('✅ Retrieved token vault', flush=True)
+                print('Retrieved token vault', flush=True)
 
             return {
                 'status': 'success',
@@ -362,17 +362,17 @@ def manage_agentcore_identity(
                 }
 
             if verbose:
-                print('🔐 Setting token vault KMS key...', flush=True)
+                print('Setting token vault KMS key...', flush=True)
 
             client.set_token_vault_cmk(keyId=kms_key_id)
 
             if verbose:
-                print('✅ Token vault KMS key set', flush=True)
+                print('Token vault KMS key set', flush=True)
 
             return {
                 'status': 'success',
                 'content': [
-                    {'text': '✅ **Token Vault KMS Key Set**'},
+                    {'text': '**Token Vault KMS Key Set**'},
                     {'text': f'**Key ID:** {kms_key_id}'},
                 ],
             }
@@ -392,7 +392,7 @@ def manage_agentcore_identity(
         error_message = e.response.get('Error', {}).get('Message', str(e))
 
         if verbose:
-            print(f'❌ AWS Error: {error_code} - {error_message}', flush=True)
+            print(f'AWS Error: {error_code} - {error_message}', flush=True)
 
         return {
             'status': 'error',
@@ -405,7 +405,7 @@ def manage_agentcore_identity(
 
     except Exception as e:
         if verbose:
-            print(f'❌ Unexpected Error: {str(e)}', flush=True)
+            print(f'Unexpected Error: {str(e)}', flush=True)
 
         return {
             'status': 'error',
@@ -437,7 +437,7 @@ def _create_oauth2_provider(
         }
 
     if verbose:
-        print(f'📝 Creating OAuth2 provider: {name} ({vendor})', flush=True)
+        print(f'Creating OAuth2 provider: {name} ({vendor})', flush=True)
 
     # Build provider config based on vendor
     oauth2_config = {}
@@ -491,12 +491,12 @@ def _create_oauth2_provider(
     response = client.create_oauth2_credential_provider(**params)
 
     if verbose:
-        print('✅ OAuth2 provider created', flush=True)
+        print('OAuth2 provider created', flush=True)
 
     return {
         'status': 'success',
         'content': [
-            {'text': '✅ **OAuth2 Credential Provider Created**'},
+            {'text': '**OAuth2 Credential Provider Created**'},
             {'text': f'**Name:** {name}'},
             {'text': f'**Vendor:** {vendor}'},
             {'text': f'**Callback URL:** {response.get("callbackUrl", "Not available")}'},
@@ -520,7 +520,7 @@ def _create_api_key_provider(
         }
 
     if verbose:
-        print(f'📝 Creating API key provider: {name}', flush=True)
+        print(f'Creating API key provider: {name}', flush=True)
 
     params = {'name': name, 'apiKey': api_key}
 
@@ -530,12 +530,12 @@ def _create_api_key_provider(
     response = client.create_api_key_credential_provider(**params)
 
     if verbose:
-        print('✅ API key provider created', flush=True)
+        print('API key provider created', flush=True)
 
     return {
         'status': 'success',
         'content': [
-            {'text': '✅ **API Key Credential Provider Created**'},
+            {'text': '**API Key Credential Provider Created**'},
             {'text': f'**Name:** {name}'},
             {'text': f'**ARN:** {response.get("credentialProviderArn")}'},
         ],
@@ -547,24 +547,24 @@ def _create_workload_identity(
 ) -> Dict[str, Any]:
     """Create workload identity."""
     if verbose:
-        print(f'📝 Creating workload identity: {name}', flush=True)
+        print(f'Creating workload identity: {name}', flush=True)
 
     params = {'name': name}
     if workload_arn:
         params['workloadArn'] = workload_arn
 
     if verbose:
-        print('🚀 Calling CreateWorkloadIdentity API...', flush=True)
+        print('Calling CreateWorkloadIdentity API...', flush=True)
 
     response = client.create_workload_identity(**params)
 
     if verbose:
-        print('✅ Workload identity created', flush=True)
+        print('Workload identity created', flush=True)
 
     return {
         'status': 'success',
         'content': [
-            {'text': '✅ **Workload Identity Created**'},
+            {'text': '**Workload Identity Created**'},
             {'text': f'**Name:** {name}'},
             {'text': f'**ARN:** {response.get("workloadIdentityArn")}'},
         ],
@@ -585,7 +585,7 @@ def _update_oauth2_provider(
 ) -> Dict[str, Any]:
     """Update OAuth2 credential provider."""
     if verbose:
-        print(f'📝 Updating OAuth2 provider: {name}', flush=True)
+        print(f'Updating OAuth2 provider: {name}', flush=True)
 
     params = {'name': name}
 
@@ -607,17 +607,17 @@ def _update_oauth2_provider(
         params['genericOauth2ProviderConfig'] = config  # type: ignore[assignment]
 
     if verbose:
-        print('🚀 Calling UpdateOAuth2CredentialProvider API...', flush=True)
+        print('Calling UpdateOAuth2CredentialProvider API...', flush=True)
 
     response = client.update_oauth2_credential_provider(**params)
 
     if verbose:
-        print('✅ OAuth2 provider updated', flush=True)
+        print('OAuth2 provider updated', flush=True)
 
     return {
         'status': 'success',
         'content': [
-            {'text': '✅ **OAuth2 Credential Provider Updated**'},
+            {'text': '**OAuth2 Credential Provider Updated**'},
             {'text': f'**Name:** {name}'},
             {'text': json.dumps(response, indent=2, default=str)},
         ],
@@ -633,7 +633,7 @@ def _update_api_key_provider(
 ) -> Dict[str, Any]:
     """Update API key credential provider."""
     if verbose:
-        print(f'📝 Updating API key provider: {name}', flush=True)
+        print(f'Updating API key provider: {name}', flush=True)
 
     params = {'name': name}
     if api_key:
@@ -642,17 +642,17 @@ def _update_api_key_provider(
         params['headerName'] = header_name
 
     if verbose:
-        print('🚀 Calling UpdateApiKeyCredentialProvider API...', flush=True)
+        print('Calling UpdateApiKeyCredentialProvider API...', flush=True)
 
     response = client.update_api_key_credential_provider(**params)
 
     if verbose:
-        print('✅ API key provider updated', flush=True)
+        print('API key provider updated', flush=True)
 
     return {
         'status': 'success',
         'content': [
-            {'text': '✅ **API Key Credential Provider Updated**'},
+            {'text': '**API Key Credential Provider Updated**'},
             {'text': f'**Name:** {name}'},
             {'text': json.dumps(response, indent=2, default=str)},
         ],
@@ -664,24 +664,24 @@ def _update_workload_identity(
 ) -> Dict[str, Any]:
     """Update workload identity."""
     if verbose:
-        print(f'📝 Updating workload identity: {name}', flush=True)
+        print(f'Updating workload identity: {name}', flush=True)
 
     params = {'name': name}
     if workload_arn:
         params['workloadArn'] = workload_arn
 
     if verbose:
-        print('🚀 Calling UpdateWorkloadIdentity API...', flush=True)
+        print('Calling UpdateWorkloadIdentity API...', flush=True)
 
     response = client.update_workload_identity(**params)
 
     if verbose:
-        print('✅ Workload identity updated', flush=True)
+        print('Workload identity updated', flush=True)
 
     return {
         'status': 'success',
         'content': [
-            {'text': '✅ **Workload Identity Updated**'},
+            {'text': '**Workload Identity Updated**'},
             {'text': f'**Name:** {name}'},
             {'text': json.dumps(response, indent=2, default=str)},
         ],

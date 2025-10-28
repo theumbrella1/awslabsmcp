@@ -61,27 +61,27 @@ def get_agentcore_status(
        - Creation and update timestamps
        - Failure reason (if applicable)
     4. **Health Interpretation**:
-       - ✅ READY: Agent accepting invocations
-       - ⏳ CREATING/UPDATING: Deployment in progress
-       - ❌ FAILED: Deployment error with reason
+       - READY: Agent accepting invocations
+       - CREATING/UPDATING: Deployment in progress
+       - FAILED: Deployment error with reason
 
     Agent Status Values:
     -------------------
     **Runtime Status:**
-    - `READY` - Agent runtime created successfully ✅
-    - `CREATING` - Agent being provisioned ⏳
-    - `UPDATING` - Agent configuration being updated 🔄
-    - `DELETING` - Agent being removed 🗑️
-    - `CREATE_FAILED` - Runtime creation failed ❌
-    - `UPDATE_FAILED` - Update failed ❌
+    - `READY` - Agent runtime created successfully
+    - `CREATING` - Agent being provisioned
+    - `UPDATING` - Agent configuration being updated
+    - `DELETING` - Agent being removed
+    - `CREATE_FAILED` - Runtime creation failed
+    - `UPDATE_FAILED` - Update failed
 
     **Endpoint Status:**
-    - `READY` - Endpoint ready for invocations ✅
-    - `CREATING` - Endpoint being provisioned ⏳
-    - `UPDATING` - Endpoint configuration updating 🔄
-    - `DELETING` - Endpoint being removed 🗑️
-    - `CREATE_FAILED` - Endpoint creation failed ❌
-    - `UPDATE_FAILED` - Endpoint update failed ❌
+    - `READY` - Endpoint ready for invocations
+    - `CREATING` - Endpoint being provisioned
+    - `UPDATING` - Endpoint configuration updating
+    - `DELETING` - Endpoint being removed
+    - `CREATE_FAILED` - Endpoint creation failed
+    - `UPDATE_FAILED` - Endpoint update failed
 
     Common Use Cases:
     ---------------
@@ -103,47 +103,18 @@ def get_agentcore_status(
 
     # Parse status
     if 'READY' in str(result):
-        print('✅ Agent healthy')
+        print('Agent healthy')
     else:
-        print('⚠️ Agent unhealthy - investigate')
+        print('Agent unhealthy - investigate')
     ```
 
-    ### 3. Deployment Status Polling
-    ```python
-    # Poll until agent is ready
-    import time
-
-    for i in range(30):  # 5 minutes max
-        result = status(agent_id='my-agent-abc123')
-        if 'READY' in str(result):
-            print('✅ Deployment complete!')
-            break
-        elif 'FAILED' in str(result):
-            print('❌ Deployment failed!')
-            break
-        time.sleep(10)
-    ```
-
-    ### 4. Endpoint-Only Check
-    ```python
-    # Fast endpoint status check (skip agent details)
-    status(agent_id='my-agent-abc123', include_agent_details=False)
-    # Faster response, only endpoint health
-    ```
-
-    ### 5. Multi-Endpoint Monitoring
+    ### 3. Multi-Endpoint Monitoring
     ```python
     # Check default endpoint
     status(agent_id='my-agent-abc123', endpoint_name='DEFAULT')
-
-    # Check production endpoint
-    status(agent_id='my-agent-abc123', endpoint_name='production')
-
-    # Check staging endpoint
-    status(agent_id='my-agent-abc123', endpoint_name='staging')
     ```
 
-    ### 6. Configuration Audit
+    ### 4. Configuration Audit
     ```python
     # Get full agent configuration details
     result = status(agent_id='my-agent-abc123')
@@ -155,7 +126,7 @@ def get_agentcore_status(
     # - Creation timestamp (when deployed)
     ```
 
-    ### 7. Troubleshooting Failed Deployments
+    ### 5. Troubleshooting Failed Deployments
     ```python
     # Check why deployment failed
     result = status(agent_id='my-agent-abc123')
@@ -166,113 +137,21 @@ def get_agentcore_status(
     # - Error messages in response
     ```
 
-    ### 8. Container URI Verification
+    ### 6. Container URI Verification
     ```python
     # Verify correct container image is deployed
     result = status(agent_id='my-agent-abc123')
-
-    # Check containerUri matches expected ECR URI
-    # Useful after update to confirm new image
     ```
 
-    ### 9. Cross-Region Status Check
+    ### 7. Cross-Region Status Check
     ```python
     # Check agent in different region
-    status(agent_id='global-agent-abc123', region='us-east-1')
-
     status(agent_id='global-agent-abc123', region='eu-west-1')
-    ```
-
-    ### 10. Minimal Quick Check
-    ```python
-    # Super fast endpoint-only status
-    status(agent_id='my-agent-abc123', include_agent_details=False, include_endpoint_details=True)
-    # Only returns endpoint health (READY/CREATING/FAILED)
-    ```
-
-    Integration with Other Tools:
-    ----------------------------
-    **status() works seamlessly with:**
-
-    ```python
-    # 1. After configure - check if agent exists
-    configure(action='configure', entrypoint='agent.py')
-    status(agent_id='agent-from-config')  # Verify deployment state
-
-    # 2. After launch - verify deployment success
-    launch(agent_name='my-agent')
-    status(agent_id='my-agent-abc123')  # Confirm READY status
-
-    # 3. Before invoke - ensure agent is healthy
-    status(agent_id='my-agent-abc123')  # Check READY
-    invoke(agent_arn='...', payload='{"prompt": "test"}')  # Safe to invoke
-
-    # 4. With logs - comprehensive debugging
-    status(agent_id='my-agent-abc123')  # Get configuration
-    logs(agent_id='my-agent-abc123', action='search', filter_pattern='ERROR')  # Check errors
-
-    # 5. With agents - discovery and verification
-    agent_list = agents(action='list')  # Discover agents
-    for agent in agent_list:
-        status(agent_id=agent['agentRuntimeId'])  # Check each one
-
-    # 6. Deployment pipeline validation
-    configure(action='configure', entrypoint='agent.py', agent_name='my-agent')
-    launch(action='launch', agent_name='my-agent')
-    status(agent_id='my-agent-abc123')  # Verify complete pipeline
-    ```
-
-    Response Structure:
-    ------------------
-    **Success Response Contains:**
-    ```json
-    {
-      "status": "success",
-      "content": [
-        {"text": "**Agent Runtime Details:**"},
-        {
-          "text": {
-            "agentRuntimeId": "my-agent-abc123",
-            "agentRuntimeArn": "arn:aws:bedrock-agentcore:us-west-2:123:runtime/my-agent-abc123",
-            "agentRuntimeName": "my-agent",
-            "status": "READY",
-            "roleArn": "arn:aws:iam::123:role/AgentCoreRuntime",
-            "containerUri": "123.dkr.ecr.us-west-2.amazonaws.com/bedrock-agentcore-my-agent:latest",
-            "networkMode": "PUBLIC",
-            "createdAt": "2024-10-24T16:00:00",
-            "lastUpdatedAt": "2024-10-24T17:00:00"
-          }
-        },
-        {"text": "**Endpoint Details:**"},
-        {
-          "text": {
-            "agentRuntimeEndpointArn": "arn:aws:bedrock-agentcore:us-west-2:123:runtime/my-agent/endpoint/DEFAULT",
-            "name": "DEFAULT",
-            "status": "READY",
-            "createdAt": "2024-10-24T16:00:00",
-            "lastUpdatedAt": "2024-10-24T17:00:00"
-          }
-        },
-        {"text": "✅ **Agent is ready for invocation**"}
-      ]
-    }
-    ```
-
-    **Error Response:**
-    ```json
-    {
-      "status": "error",
-      "content": [
-        {"text": "**AWS Error (ResourceNotFoundException):** Agent runtime not found"},
-        {"text": "**Agent ID:** my-agent-abc123"},
-        {"text": "**Region:** us-west-2"}
-      ]
-    }
     ```
 
     Status Interpretation Guide:
     ---------------------------
-    **✅ READY Status:**
+    **READY Status:**
     - Agent is fully operational
     - Endpoint accepting invocations
     - Safe to call invoke()
@@ -284,7 +163,7 @@ def get_agentcore_status(
     - Poll status() until READY
     - Normal during deployment
 
-    **❌ CREATE_FAILED/UPDATE_FAILED Status:**
+    **CREATE_FAILED/UPDATE_FAILED Status:**
     - Deployment error occurred
     - Check "failureReason" field
     - Common issues:
@@ -293,66 +172,6 @@ def get_agentcore_status(
       - Invalid configuration
       - Resource limits exceeded
     - Review CloudWatch logs for details
-
-    Monitoring Patterns:
-    -------------------
-
-    ### Pattern 1: Continuous Health Monitoring
-    ```python
-    # Production monitoring loop
-    import time
-
-    while True:
-        result = status(agent_id='prod-agent-abc123')
-
-        if 'READY' not in str(result):
-            # Alert: Agent not healthy!
-            logs(agent_id='prod-agent-abc123', action='search', filter_pattern='ERROR')
-            # Send notification
-
-        time.sleep(60)  # Check every minute
-    ```
-
-    ### Pattern 2: Deployment Verification Script
-    ```python
-    # Complete deployment verification
-    def verify_deployment(agent_name, agent_id):
-        print('1. Checking agent status...')
-        status_result = status(agent_id=agent_id)
-
-        if 'READY' not in str(status_result):
-            print('❌ Agent not ready')
-            return False
-
-        print('2. Checking recent logs...')
-        log_result = logs(agent_id=agent_id, limit=20)
-
-        if 'ERROR' in str(log_result):
-            print('⚠️ Errors found in logs')
-            return False
-
-        print('3. Testing invocation...')
-        invoke_result = invoke(
-            agent_arn=f'arn:aws:bedrock-agentcore:us-west-2:123:runtime/{agent_id}',
-            payload='{"prompt": "test"}',
-        )
-
-        print('✅ Deployment verified!')
-        return True
-    ```
-
-    ### Pattern 3: Multi-Agent Status Dashboard
-    ```python
-    # Check status of all deployed agents
-    agent_list = agents(action='list')
-
-    for agent in agent_list.get('agents', []):
-        agent_id = agent['agentRuntimeId']
-        result = status(agent_id=agent_id, include_agent_details=False)
-
-        status_value = extract_status(result)
-        print(f'{agent["agentRuntimeName"]}: {status_value}')
-    ```
 
     Args:
         agent_id: Agent runtime ID (required)
@@ -395,7 +214,7 @@ def get_agentcore_status(
                 {"text": "{JSON with agent info}"},
                 {"text": "**Endpoint Details:**"},
                 {"text": "{JSON with endpoint info}"},
-                {"text": "✅ **Agent is ready for invocation**"}
+                {"text": "**Agent is ready for invocation**"}
             ]
         }
 
@@ -420,71 +239,6 @@ def get_agentcore_status(
         - createdAt: Endpoint creation timestamp
         - lastUpdatedAt: Last endpoint update
         - failureReason: Error details (if status is FAILED)
-
-    Examples:
-    --------
-    # Basic full status check
-    status(agent_id="my-agent-abc123")
-
-    # Fast endpoint-only health check
-    status(
-        agent_id="my-agent-abc123",
-        include_agent_details=False
-    )
-
-    # Check custom endpoint
-    status(
-        agent_id="my-agent-abc123",
-        endpoint_name="production"
-    )
-
-    # Agent configuration audit (no endpoint check)
-    status(
-        agent_id="my-agent-abc123",
-        include_endpoint_details=False
-    )
-
-    # Multi-region agent status
-    status(
-        agent_id="global-agent-abc123",
-        region="us-east-1"
-    )
-
-    # Complete health check with logging
-    agent_status = status(agent_id="my-agent-abc123")
-    if "READY" in str(agent_status):
-        logs(agent_id="my-agent-abc123", limit=20)  # Check recent activity
-
-    # Deployment verification workflow
-    launch_result = launch(agent_name="my-agent")
-    agent_id = extract_agent_id(launch_result)  # Parse from launch output
-    status(agent_id=agent_id)  # Verify deployment
-
-    # Troubleshooting failed deployment
-    status_result = status(agent_id="my-agent-abc123")
-    # Look for failureReason field
-    # Then check logs for detailed errors
-    logs(agent_id="my-agent-abc123", action="search", filter_pattern="ERROR")
-
-    # Pre-invocation safety check
-    status_result = status(agent_id="my-agent-abc123")
-    if "READY" in str(status_result):
-        invoke(
-            agent_arn="arn:aws:bedrock-agentcore:us-west-2:123:runtime/my-agent-abc123",
-            payload='{"prompt": "Hello"}'
-        )
-
-    # Container image verification after update
-    status(agent_id="my-agent-abc123")
-    # Check containerUri matches latest ECR push
-
-    # Network configuration audit
-    status(agent_id="my-agent-abc123")
-    # Verify networkMode = "PUBLIC" or "VPC"
-
-    # IAM role verification
-    status(agent_id="my-agent-abc123")
-    # Check roleArn has correct permissions
 
     Notes:
         - **Prerequisites**: Agent must be deployed via launch tool first
@@ -587,11 +341,11 @@ def get_agentcore_status(
                 # Add status interpretation
                 status = endpoint_info['status']
                 if status == 'READY':
-                    results.append({'text': '\n✅ **Agent is ready for invocation**'})
+                    results.append({'text': '\n**Agent is ready for invocation**'})
                 elif status in ['CREATING', 'UPDATING']:
-                    results.append({'text': f'\n⏳ **Agent is {status.lower()}...**'})
+                    results.append({'text': f'\n**Agent is {status.lower()}...**'})
                 elif status in ['CREATE_FAILED', 'UPDATE_FAILED']:
-                    results.append({'text': f'\n❌ **Agent {status.lower().replace("_", " ")}**'})
+                    results.append({'text': f'\n**Agent {status.lower().replace("_", " ")}**'})
 
             except ClientError as e:
                 results.append(

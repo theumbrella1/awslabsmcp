@@ -76,7 +76,7 @@ def deploy_agentcore_agent(
     7. **AgentCore Deploy**: Creates/updates runtime with container URI
     8. **Endpoint Wait**: Polls until endpoint status becomes READY
 
-    Three Deployment Modes:
+    Two Deployment Modes:
     ----------------------
 
     ### Mode 1: CodeBuild (Recommended - Default)
@@ -89,14 +89,6 @@ def deploy_agentcore_agent(
         mode='codebuild',  # Default mode
     )
     ```
-
-    **How it works:**
-    - Creates S3 bucket for source upload (with 7-day lifecycle)
-    - Packages entire project directory (respects .dockerignore)
-    - Creates CodeBuild project with ARM64 environment
-    - Parallel build: Docker build + ECR authentication
-    - Automatic image push to ECR
-    - Zero local Docker dependencies
 
     **Best for:**
     - Production deployments
@@ -111,36 +103,6 @@ def deploy_agentcore_agent(
     ```python
     launch(action='launch', agent_name='my-agent', mode='local')
     ```
-
-    **How it works:**
-    - Builds container locally on your machine
-    - Runs agent in local Docker container
-    - No cloud deployment
-    - Direct console output
-
-    **Best for:**
-    - ✅ Local development and testing
-    - ✅ Rapid iteration
-    - ✅ Debugging agent behavior
-    - ✅ Network-isolated development
-
-    ### Mode 3: Local-build (Hybrid)
-    **Build locally, deploy to cloud**
-
-    ```python
-    launch(action='launch', agent_name='my-agent', mode='local-build')
-    ```
-
-    **How it works:**
-    - Builds container locally
-    - Pushes to ECR
-    - Deploys to AgentCore runtime
-
-    **Best for:**
-    - ✅ Custom build requirements
-    - ✅ Pre-built base images
-    - ✅ Local build caching
-    - ⚠️ Requires local Docker + ECR access
 
     Auto-Update on Conflict:
     -----------------------
@@ -162,28 +124,6 @@ def deploy_agentcore_agent(
     - Retrieves agent_id from list API
     - Updates existing agent with new container image
     - Preserves agent_arn and configuration
-
-    Environment Variables:
-    --------------------
-    Pass runtime configuration to your deployed agent:
-
-    ```python
-    launch(
-        agent_name='my-agent',
-        env_vars={
-            'MODEL_ID': 'anthropic.claude-v3-5-sonnet',
-            'MAX_TOKENS': '4096',
-            'LOG_LEVEL': 'DEBUG',
-            'CUSTOM_CONFIG': 'production',
-        },
-    )
-    ```
-
-    **Automatic Environment Variables (Added by launch tool):**
-    - `BEDROCK_memory_ID`: Memory resource ID (if memory enabled)
-    - `BEDROCK_memory_NAME`: Memory resource name
-    - `AWS_REGION`: Deployment region
-    - `AWS_DEFAULT_REGION`: Deployment region (duplicate for compatibility)
 
     Resource Management:
     -------------------
@@ -254,27 +194,6 @@ def deploy_agentcore_agent(
     launch(action='stop_session', agent_name='my-agent')
     ```
 
-    Integration with Configure Tool:
-    ------------------------------
-    The launch tool requires prior configuration via configure tool:
-
-    ```python
-    # Step 1: Configure (creates Dockerfile, .bedrock_agentcore.yaml)
-    configure(
-        action='configure',
-        entrypoint='agent.py',
-        agent_name='my-agent',
-        memory_mode='STM_AND_LTM',
-        enable_observability=True,
-    )
-
-    # Step 2: Launch (builds, deploys to AgentCore)
-    launch(action='launch', agent_name='my-agent')
-
-    # Step 3: Invoke (call deployed agent)
-    invoke(agent_arn='arn:aws:bedrock-agentcore:...', payload='{"prompt": "Hello!"}')
-    ```
-
     Args:
         action: Action to perform:
             - "launch": Deploy agent to AgentCore (default)
@@ -325,51 +244,6 @@ def deploy_agentcore_agent(
 
         Success case: Returns agent ARN, ID, ECR URI, build details, next steps
         Error case: Returns detailed error message and troubleshooting guidance
-
-    Examples:
-    --------
-    # Basic deployment (CodeBuild mode)
-    launch(
-        action="launch",
-        agent_name="my-research-agent"
-    )
-
-    # Deployment with auto-update
-    launch(
-        action="launch",
-        agent_name="my-research-agent",
-        auto_update_on_conflict=True
-    )
-
-    # Deploy with custom environment variables
-    launch(
-        action="launch",
-        agent_name="my-research-agent",
-        env_vars={
-            "MODEL_ID": ""us.anthropic.claude-sonnet-4-5-20250929-v1:0"",
-            "MAX_TOKENS": "64000",
-            "ENVIRONMENT": "production"
-        }
-    )
-
-    # Check deployment status
-    launch(
-        action="status",
-        agent_name="my-research-agent"
-    )
-
-    # Stop active session
-    launch(
-        action="stop_session",
-        agent_name="my-research-agent"
-    )
-
-    # Deploy to different region
-    launch(
-        action="launch",
-        agent_name="my-research-agent",
-        region="us-east-1"
-    )
 
     Notes:
         - **Prerequisites**: Must run configure tool first to generate Dockerfile
@@ -576,7 +450,7 @@ def _launch_with_codebuild(
         return {
             'status': 'error',
             'content': [
-                {'text': f'❌ Dockerfile not found at: {dockerfile_path}'},
+                {'text': f'Dockerfile not found at: {dockerfile_path}'},
                 {'text': '\n**Required: Run configure first**'},
                 {
                     'text': f"  configure(action='configure', entrypoint='{agent_config.get('entrypoint')}', agent_name='{agent_name}')"
@@ -587,17 +461,17 @@ def _launch_with_codebuild(
             ],
         }
 
-    logger.info(f'✅ Using Dockerfile: {dockerfile_path}')
+    logger.info(f'Using Dockerfile: {dockerfile_path}')
 
     # Step 1: Ensure ECR repository
     ecr_uri = _ensure_ecr_repository(agent_config, project_config, config_path, agent_name, region)
-    logger.info(f'✅ ECR repository: {ecr_uri}')
+    logger.info(f'ECR repository: {ecr_uri}')
 
     # Step 2: Ensure execution role
     _ensure_execution_role(
         agent_config, project_config, config_path, agent_name, region, account_id
     )
-    logger.info(f'✅ Execution role: {agent_config["aws"]["execution_role"]}')
+    logger.info(f'Execution role: {agent_config["aws"]["execution_role"]}')
 
     # Step 3: CodeBuild build
     codebuild_service = CodeBuildService(session, logger)
@@ -654,7 +528,7 @@ def _launch_with_codebuild(
     logger.info('Starting CodeBuild build...')
     build_id = codebuild_service.start_build(project_name, source_location)
     codebuild_service.wait_for_completion(build_id)
-    logger.info('✅ CodeBuild completed successfully')
+    logger.info('CodeBuild completed successfully')
 
     # Save CodeBuild config
     if 'codebuild' not in agent_config:
@@ -680,7 +554,7 @@ def _launch_with_codebuild(
     return {
         'status': 'success',
         'content': [
-            {'text': '✅ Agent deployed successfully!'},
+            {'text': 'Agent deployed successfully!'},
             {'text': f'Agent Name: {agent_name}'},
             {'text': f'Agent ARN: {agent_arn}'},
             {'text': f'Agent ID: {agent_id}'},
@@ -715,12 +589,12 @@ def _ensure_ecr_repository(
         try:
             response = ecr.describe_repositories(repositoryNames=[repo_name])
             ecr_uri = str(response['repositories'][0]['repositoryUri'])
-            logger.info(f'✅ Reusing existing ECR repository: {ecr_uri}')
+            logger.info(f'Reusing existing ECR repository: {ecr_uri}')
         except ecr.exceptions.RepositoryNotFoundException:
             logger.info(f'Creating new ECR repository: {repo_name}')
             response = ecr.create_repository(repositoryName=repo_name)
             ecr_uri = str(response['repository']['repositoryUri'])
-            logger.info(f'✅ Created ECR repository: {ecr_uri}')
+            logger.info(f'Created ECR repository: {ecr_uri}')
 
         # Update config
         if 'aws' not in agent_config:
@@ -761,7 +635,7 @@ def _ensure_execution_role(
             # Check if role exists
             role = iam.get_role(RoleName=role_name)
             execution_role_arn = str(role['Role']['Arn'])
-            logger.info(f'✅ Reusing existing execution role: {execution_role_arn}')
+            logger.info(f'Reusing existing execution role: {execution_role_arn}')
         except ClientError as e:
             if e.response['Error']['Code'] == 'NoSuchEntity':
                 # Create new role
@@ -769,7 +643,7 @@ def _ensure_execution_role(
                 execution_role_arn = _create_runtime_execution_role(
                     iam, role_name, region, account_id, agent_name
                 )
-                logger.info(f'✅ Created execution role: {execution_role_arn}')
+                logger.info(f'Created execution role: {execution_role_arn}')
             else:
                 raise
 
@@ -861,7 +735,7 @@ def _deploy_to_bedrock_agentcore(
             params['agentRuntimeId'] = agent_id
             response = client.update_agent_runtime(**params)
             agent_arn = response['agentRuntimeArn']
-            logger.info(f'✅ Agent updated: {agent_arn}')
+            logger.info(f'Agent updated: {agent_arn}')
         else:
             # Create new agent - add agentRuntimeName for create
             create_params = params.copy()
@@ -869,7 +743,7 @@ def _deploy_to_bedrock_agentcore(
             response = client.create_agent_runtime(**create_params)
             agent_id = response['agentRuntimeId']
             agent_arn = response['agentRuntimeArn']
-            logger.info(f'✅ Agent created: {agent_arn}')
+            logger.info(f'Agent created: {agent_arn}')
 
     except ClientError as e:
         if e.response['Error']['Code'] == 'ConflictException' and auto_update_on_conflict:
@@ -890,7 +764,7 @@ def _deploy_to_bedrock_agentcore(
             params['agentRuntimeId'] = agent_id
             response = client.update_agent_runtime(**params)
             agent_arn = response['agentRuntimeArn']
-            logger.info(f'✅ Agent updated: {agent_arn}')
+            logger.info(f'Agent updated: {agent_arn}')
         else:
             raise
 
@@ -924,7 +798,7 @@ def _wait_for_endpoint_ready(
             status = response.get('status', 'UNKNOWN')
 
             if status == 'READY':
-                logger.info(f'✅ Endpoint ready: {response["agentRuntimeEndpointArn"]}')
+                logger.info(f'Endpoint ready: {response["agentRuntimeEndpointArn"]}')
                 return response['agentRuntimeEndpointArn']
             elif status in ['CREATE_FAILED', 'UPDATE_FAILED']:
                 raise RuntimeError(
@@ -999,7 +873,7 @@ def _get_agent_status(config_path: Path, agent_name: Optional[str], region: str)
         return {
             'status': 'success',
             'content': [
-                {'text': f'✅ Agent Status: {actual_agent_name}'},
+                {'text': f'Agent Status: {actual_agent_name}'},
                 {'text': f'Agent ARN: {agent_arn}'},
                 {'text': f'Agent ID: {agent_id}'},
                 {'text': f'Endpoint Status: {endpoint_status}'},
@@ -1048,7 +922,7 @@ def _stop_runtime_session(
         return {
             'status': 'success',
             'content': [
-                {'text': f'✅ Session stopped: {session_id}'},
+                {'text': f'Session stopped: {session_id}'},
                 {'text': f'Agent: {agent_config["name"]}'},
             ],
         }
@@ -1268,7 +1142,7 @@ class CodeBuildService:
         self.logger.info('Waiting for IAM propagation...')
         time.sleep(10)
 
-        self.logger.info(f'✅ Created CodeBuild execution role: {role["Role"]["Arn"]}')
+        self.logger.info(f'Created CodeBuild execution role: {role["Role"]["Arn"]}')
         return str(role['Role']['Arn'])
 
     def create_or_update_project(
@@ -1337,21 +1211,21 @@ class CodeBuildService:
             if build_phase != current_phase:
                 if current_phase and phase_start_time:
                     phase_duration = time.time() - phase_start_time
-                    self.logger.info(f'✅ {current_phase} completed in {phase_duration:.1f}s')
+                    self.logger.info(f'{current_phase} completed in {phase_duration:.1f}s')
 
                 current_phase = build_phase
                 phase_start_time = time.time()
                 total_duration = phase_start_time - build_start_time
-                self.logger.info(f'🔄 {current_phase} started (total: {total_duration:.0f}s)')
+                self.logger.info(f'{current_phase} started (total: {total_duration:.0f}s)')
 
             if status == 'SUCCEEDED':
                 if current_phase and phase_start_time:
                     phase_duration = time.time() - phase_start_time
-                    self.logger.info(f'✅ {current_phase} completed in {phase_duration:.1f}s')
+                    self.logger.info(f'{current_phase} completed in {phase_duration:.1f}s')
 
                 total_duration = time.time() - build_start_time
                 minutes, seconds = divmod(int(total_duration), 60)
-                self.logger.info(f'🎉 CodeBuild completed in {minutes}m {seconds}s')
+                self.logger.info(f'CodeBuild completed in {minutes}m {seconds}s')
                 return
 
             elif status in ['FAILED', 'FAULT', 'STOPPED', 'TIMED_OUT']:
@@ -1540,7 +1414,7 @@ def _create_runtime_execution_role(
         PolicyDocument=json.dumps(execution_policy),
     )
 
-    logger.info(f'✅ Created execution role: {role["Role"]["Arn"]}')
+    logger.info(f'Created execution role: {role["Role"]["Arn"]}')
     return str(role['Role']['Arn'])
 
 

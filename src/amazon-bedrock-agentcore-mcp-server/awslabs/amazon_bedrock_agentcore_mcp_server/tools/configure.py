@@ -457,135 +457,6 @@ def configure_agentcore_agent(  # type: ignore[return]
     5. **Observability**: Integrates OpenTelemetry for distributed tracing
     6. **Lifecycle**: Configures idle timeout and max lifetime for cost optimization
 
-    Three Critical AgentCore Integration Patterns:
-    --------------------------------------------
-
-    ### 1. Memory Integration (STM/LTM)
-    AgentCore agents support persistent memory across conversations:
-
-    **Memory Configuration:**
-    ```python
-    # STM_ONLY - Short-term memory (session-based)
-    configure(action='configure', entrypoint='agent.py', memory_mode='STM_ONLY')
-
-    # STM_AND_LTM - Long-term memory with semantic search
-    configure(action='configure', entrypoint='agent.py', memory_mode='STM_AND_LTM')
-    ```
-
-    **Agent Implementation Pattern:**
-    ```python
-    from bedrock_agentcore.memory.integrations.strands.config import (
-        AgentCoreMemoryConfig,
-        RetrievalConfig,
-    )
-    from bedrock_agentcore.memory.integrations.strands.session_manager import (
-        AgentCoreMemorySessionManager,
-    )
-    from strands_tools.agent_core_memory import AgentCoreMemoryToolProvider
-
-    # Configure memory with actor-specific namespaces
-    memory_config = AgentCoreMemoryConfig(
-        memory_id=MEMORY_ID,
-        session_id=session_id,
-        actor_id=actor_id,
-        retrieval_config={
-            f'/users/{actor_id}/facts': RetrievalConfig(top_k=3, relevance_score=0.5),
-            f'/users/{actor_id}/preferences': RetrievalConfig(top_k=3, relevance_score=0.5),
-        },
-    )
-
-    # Create session manager for conversation history
-    session_manager = AgentCoreMemorySessionManager(memory_config, REGION)
-
-    # Provide memory tools to agent
-    memory_provider = AgentCoreMemoryToolProvider(
-        memory_id=MEMORY_ID,
-        session_id=session_id,
-        actor_id=actor_id,
-        namespace='default',
-        region=REGION,
-    )
-    ```
-
-    ### 2. Tool Attachment Patterns
-    AgentCore agents support multiple tool integration methods:
-
-    **Custom Tools:**
-    ```python
-        # @mcp.tool() - registered in server.py
-    def system_prompt(action: str, prompt: str = None) -> dict:
-        \"\"\"Dynamic system prompt modification.\"\"\"
-        if action == "set":
-            os.environ["SYSTEM_PROMPT"] = prompt
-            return {"status": "success"}
-        return {"status": "error"}
-    ```
-
-    **Built-in Tools:**
-    ```python
-    from strands_tools import shell, environment, use_agent, python_repl
-    ```
-
-    **Memory Provider Tools:**
-    ```python
-    # Memory provider automatically generates tools:
-    # - store_memory: Store information in memory
-    # - retrieve_memory: Semantic search across stored memories
-    # - list_memories: List all stored memories
-    memory_provider.tools  # List of dynamically generated tools
-    ```
-
-    **Hot-Reload Tools:**
-    ```python
-    agent = Agent(
-        tools=[system_prompt, shell] + memory_provider.tools,
-        load_tools_from_directory=True,  # Auto-load from ./tools/
-    )
-    ```
-
-    ### 3. Result Retrieval Methods
-    AgentCore agents support three execution patterns:
-
-    **Async Non-blocking (Fire-and-forget):**
-    ```python
-    @app.async_task
-    async def start_agent(agent, input):
-        stream = agent.stream_async(input)
-        async for event in stream:
-            print(event)
-
-
-    @app.entrypoint
-    async def invoke(payload, context):
-        q = payload.get('prompt', '')
-        # Start task without waiting for result
-        asyncio.create_task(start_agent(agent, q))
-        return {'status': 'success', 'content': 'Agent started'}
-    ```
-
-    **Async Blocking (Stream):**
-    ```python
-    @app.entrypoint
-    async def invoke(payload, context):
-        q = payload.get('prompt', '')
-        stream = agent.stream_async(q)
-
-        # Yield events as they arrive
-        async for event in stream:
-            yield event
-    ```
-
-    **Sync Blocking:**
-    ```python
-    @app.entrypoint
-    async def invoke(payload, context):
-        q = payload.get('prompt', '')
-
-        # Wait for complete response
-        result = agent(q)
-        return {'result': str(result)}
-    ```
-
     Common Use Cases:
     ---------------
     - **Research Agents**: Memory-enabled agents that learn from interactions
@@ -641,81 +512,6 @@ def configure_agentcore_agent(  # type: ignore[return]
 
         Success case: Returns configuration details and next steps
         Error case: Returns information about what went wrong
-
-    Environment Variables:
-    --------------------
-    The configured agent can access these in runtime:
-    - AWS_REGION: AWS region for API calls
-    - BEDROCK_memory_ID: Memory resource ID (if memory enabled)
-    - BEDROCK_memory_NAME: Memory resource name
-    - SYSTEM_PROMPT: Dynamic system prompt (modifiable at runtime)
-
-    Configuration File:
-    -----------------
-    Creates .bedrock_agentcore.yaml with complete agent configuration:
-    ```yaml
-    agents:
-      my_research_agent:
-        name: my_research_agent
-        entrypoint: agent.py
-        platform: linux/arm64
-        aws:
-          execution_role: arn:aws:iam::123:role/AgentCoreRuntime
-          region: us-west-2
-          ecr_repository: 123.dkr.ecr.us-west-2.amazonaws.com/bedrock-agentcore-my-agent
-          network_configuration:
-            network_mode: PUBLIC
-          protocol_configuration:
-            server_protocol: HTTP
-          observability:
-            enabled: true
-        memory:
-          mode: STM_AND_LTM
-          memory_name: my_research_agent_memory
-          memory_id: my-memory-abc123  # Preserved across updates
-        bedrock_agentcore:  # Populated by launch tool
-          agent_id: my-agent-abc123
-          agent_arn: arn:aws:bedrock-agentcore:us-west-2:123:runtime/my-agent
-    default_agent: my_research_agent
-    ```
-
-    Examples:
-    --------
-    # Basic configuration
-    configure(
-        action="configure",
-        entrypoint="agent.py",
-        agent_name="my_agent"
-    )
-
-    # Full-featured research agent
-    configure(
-        action="configure",
-        entrypoint="research_agent.py",
-        agent_name="research_assistant",
-        memory_mode="STM_AND_LTM",
-        enable_observability=True,
-        idle_timeout=1800,  # 30 minutes
-        max_lifetime=7200,  # 2 hours
-        protocol="HTTP"
-    )
-
-    # Production agent with custom IAM roles
-    configure(
-        action="configure",
-        entrypoint="production_agent.py",
-        agent_name="prod_agent",
-        execution_role="arn:aws:iam::123456:role/MyAgentRole",
-        ecr_repository="123456.dkr.ecr.us-west-2.amazonaws.com/my-agents",
-        memory_mode="STM_AND_LTM",
-        region="us-west-2"
-    )
-
-    # Check agent status
-    configure(action="status", agent_name="my_agent")
-
-    # List all configured agents
-    configure(action="list")
 
     Notes:
         - Configuration persists in .bedrock_agentcore.yaml
@@ -925,7 +721,7 @@ def configure_agentcore_agent(  # type: ignore[return]
             return {
                 'status': 'success',
                 'content': [
-                    {'text': '✅ **Agent Configured Successfully**'},
+                    {'text': '**Agent Configured Successfully**'},
                     {'text': f'**Agent Name:** {agent_name}'},
                     {'text': f'**Entrypoint:** {entrypoint}'},
                     {'text': f'**Region:** {region}'},
@@ -991,7 +787,7 @@ def configure_agentcore_agent(  # type: ignore[return]
                 return {
                     'status': 'success',
                     'content': [
-                        {'text': f"⚠️ **Agent '{agent_name}' Configured but Not Deployed**"},
+                        {'text': f"**Agent '{agent_name}' Configured but Not Deployed**"},
                         {'text': f'**Region:** {agent_config["aws"]["region"]}'},
                         {'text': f'**Account:** {agent_config["aws"]["account"]}'},
                         {'text': '\n**Next Steps:**\n   Use launch to deploy'},
@@ -1009,7 +805,7 @@ def configure_agentcore_agent(  # type: ignore[return]
                     return {
                         'status': 'success',
                         'content': [
-                            {'text': f"✅ **Agent '{agent_name}' Status**"},
+                            {'text': f"**Agent '{agent_name}' Status**"},
                             {'text': f'**Status:** {response.get("status", "Unknown")}'},
                             {'text': f'**Agent ARN:** {agent_arn}'},
                             {'text': f'**Agent ID:** {agent_id}'},
@@ -1054,9 +850,9 @@ def configure_agentcore_agent(  # type: ignore[return]
             for name, agent_config in config['agents'].items():
                 is_default = ' (default)' if name == default_agent else ''
                 has_arn = (
-                    '✅ Deployed'
+                    'Deployed'
                     if agent_config.get('bedrock_agentcore', {}).get('agent_arn')
-                    else '⚠️ Config only'
+                    else 'Config only'
                 )
 
                 content.append({'text': f'\n**{name}**{is_default}'})
