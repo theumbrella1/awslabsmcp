@@ -205,16 +205,19 @@ class ContainerRuntime:
         # Get configuration
         entrypoint = agent_path.name
 
-        # Detect requirements file
         requirements_file_to_use = None
+        if requirements_file:
+            requirements_path = Path(requirements_file)
+            if requirements_path.exists():
+                requirements_file_to_use = requirements_path.name
+            else:
+                log.warning(f'Requirements file not found: {requirements_file}')
+
         pyproject_file = None
-        for fname in ['requirements.txt', 'pyproject.toml']:
-            if Path(fname).exists():
-                if fname == 'requirements.txt':
-                    requirements_file_to_use = fname
-                else:
-                    pyproject_file = fname
-                break
+        working_dir = agent_path.parent
+        pyproject_path = working_dir / 'pyproject.toml'
+        if pyproject_path.exists():
+            pyproject_file = 'pyproject.toml'
 
         # Build Dockerfile content
         dockerfile_content = f"""FROM ghcr.io/astral-sh/uv:python{python_version}-bookworm-slim
@@ -597,11 +600,10 @@ def configure_agentcore_agent(  # type: ignore[return]
             - "status": Check agent deployment status
             - "list": List all configured agents
 
-        entrypoint: Path to agent entrypoint file (e.g., "agent.py")
+        entrypoint: Must use absolute path to agent entrypoint file
             Must contain BedrockAgentCoreApp with @app.entrypoint decorator
-        agent_name: Name for the agent (auto-generated if not provided)
+        agent_name: Name for the agent (MUST NOT include hyphens or dashes)
             Pattern: [a-zA-Z][a-zA-Z0-9_]{0,47}
-            Note: Hyphens are not allowed in agent names (use underscores instead)
         execution_role: IAM role ARN for agent execution (auto-created if not provided)
             Needs: bedrock:InvokeModel, logs:*, bedrock-agentcore:*Memory*
         code_build_execution_role: Separate IAM role for CodeBuild
@@ -622,7 +624,8 @@ def configure_agentcore_agent(  # type: ignore[return]
             Forces session restart for resource optimization
         region: AWS region (default: us-west-2)
         source_path: Optional path to agent source code directory
-        requirements_file: Optional explicit requirements file path
+        requirements_file: Required requirements file absolute path
+            If not provided, looks for requirements.txt in the entrypoint's directory
         verbose: Enable verbose logging (default: False)
 
     Returns:
@@ -826,6 +829,36 @@ def configure_agentcore_agent(  # type: ignore[return]
                 lifecycle_config['max_lifetime'] = max_lifetime
                 log.info(f'Max lifetime: {max_lifetime}s')
 
+            # Detect and validate requirements.txt
+            requirements_file_path = None
+            if requirements_file:
+                # User provided explicit requirements file
+                requirements_file_path = Path(requirements_file).resolve()
+                if not requirements_file_path.exists():
+                    return {
+                        'status': 'error',
+                        'content': [{'text': f'Requirements file not found: {requirements_file}'}],
+                    }
+            else:
+                # Auto-detect requirements.txt in working directory
+                requirements_file_path = working_dir / 'requirements.txt'
+                if not requirements_file_path.exists():
+                    return {
+                        'status': 'error',
+                        'content': [
+                            {'text': f'requirements.txt not found in {working_dir}'},
+                            {'text': '\n**Required: Create requirements.txt**'},
+                            {
+                                'text': 'The requirements.txt file must exist in the same directory as your entrypoint.'
+                            },
+                            {'text': '\nExample requirements.txt:'},
+                            {'text': '  bedrock-agentcore>=0.1.0'},
+                            {'text': '  boto3>=1.34.0'},
+                        ],
+                    }
+
+            log.info(f'Using requirements file: {requirements_file_path}')
+
             # Generate Dockerfile in proper directory structure
             log.info('Generating Dockerfile...')
             # Always use .bedrock_agentcore/agent_name/ directory in the entrypoint's directory
@@ -842,7 +875,7 @@ def configure_agentcore_agent(  # type: ignore[return]
                 agent_name,
                 region,
                 enable_observability,
-                requirements_file,
+                str(requirements_file_path),
                 str(memory_id) if memory_id else None,
                 str(memory_name) if memory_name else None,
                 source_path,
@@ -852,7 +885,8 @@ def configure_agentcore_agent(  # type: ignore[return]
             # Build configuration
             agent_config = {
                 'name': agent_name,
-                'entrypoint': str(entrypoint_path),  # Store as absolute path
+                'entrypoint': str(entrypoint_path),
+                'requirements_file': str(requirements_file_path),
                 'platform': ContainerRuntime.DEFAULT_PLATFORM,
                 'container_runtime': runtime.runtime,
                 'aws': {
