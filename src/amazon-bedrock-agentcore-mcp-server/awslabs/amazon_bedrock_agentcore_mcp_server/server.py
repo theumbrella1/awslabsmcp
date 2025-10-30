@@ -14,12 +14,18 @@
 
 """awslabs AWS Bedrock AgentCore MCP Server implementation."""
 
-from .tools import agents, identity, logs, memory, session
-from bedrock_agentcore_starter_toolkit.operations.runtime import configure, launch, invoke, status, destroy
+from .tools import agents, gateway, identity, logs, memory, session
 from .utils import cache, text_processor
+from bedrock_agentcore_starter_toolkit.operations.runtime import (
+    configure,
+    destroy,
+    invoke,
+    launch,
+    status,
+)
 from mcp.server.fastmcp import FastMCP
-from typing import Any, Dict, List, Optional, Literal
 from pathlib import Path
+from typing import Any, Dict, List, Literal, Optional
 
 
 APP_NAME = 'amazon-bedrock-agentcore-mcp-server'
@@ -30,11 +36,14 @@ mcp.tool()(session.manage_agentcore_session)
 mcp.tool()(logs.access_agentcore_logs)
 mcp.tool()(memory.manage_agentcore_memory)
 mcp.tool()(identity.manage_agentcore_identity)
+mcp.tool()(gateway.manage_agentcore_gateway)
+
+
 @mcp.tool(
-    name="launch_agentcore_agent",
+    name='launch_agentcore_agent',
     description="""
     Launch Bedrock AgentCore agent - deploys your agent either locally for testing or to AWS cloud for production.
-    
+
     The function is idempotent - it reuses existing AWS resources (ECR repos, IAM roles, memory)
     and updates the agent if it already exists (when auto_update_on_conflict=True).
 
@@ -50,7 +59,7 @@ mcp.tool()(identity.manage_agentcore_identity)
         LaunchResult model with launch details including:
         - agent_arn: ARN of deployed agent
         - agent_id: ID of deployed agent
-        - ecr_uri: ECR repository URI 
+        - ecr_uri: ECR repository URI
         - tag: Docker image tag
         - port: Local port (local mode)
 
@@ -60,7 +69,7 @@ mcp.tool()(identity.manage_agentcore_identity)
         RuntimeToolkitException: If launch fails after creating AWS resources
         ClientError: If AWS API calls fail (role validation, ECR, CodeBuild, AgentCore deployment)
         FileNotFoundError: If configuration file doesn't exist
-    """
+    """,
 )
 def launch_agentcore_agent_wrapper(
     config_path: Path,
@@ -70,7 +79,7 @@ def launch_agentcore_agent_wrapper(
     env_vars: Optional[Dict[str, str]] = None,
     auto_update_on_conflict: bool = False,
 ):
-    """Wrapper for launch_bedrock_agentcore"""
+    """Wrapper for launch_bedrock_agentcore."""
     result = launch.launch_bedrock_agentcore(
         config_path=config_path,
         agent_name=agent_name,
@@ -80,11 +89,13 @@ def launch_agentcore_agent_wrapper(
         auto_update_on_conflict=auto_update_on_conflict,
     )
     return result.model_dump(mode='json')
+
+
 mcp.tool(
-    name="invoke_agentcore_agent",
+    name='invoke_agentcore_agent',
     description="""
     Invoke deployed Bedrock AgentCore endpoint with streaming support.
-    
+
     Sends JSON payload to agent endpoint (cloud or local), handles session management with auto-generated
     session IDs, supports authentication (bearer token, user ID), and returns agent response with session context.
 
@@ -107,10 +118,10 @@ mcp.tool(
     Raises:
         ValueError: If agent not deployed or region not configured
         FileNotFoundError: If configuration file doesn't exist
-    """
+    """,
 )(invoke.invoke_bedrock_agentcore)
 mcp.tool(
-    name="get_agentcore_agent_status",
+    name='get_agentcore_agent_status',
     description="""
     Get Bedrock AgentCore agent status and runtime details.
 
@@ -127,13 +138,13 @@ mcp.tool(
     Raises:
         FileNotFoundError: If configuration file doesn't exist
         ValueError: If Bedrock AgentCore is not deployed or configuration is invalid
-    """
+    """,
 )(status.get_status)
 mcp.tool(
-    name="destry_agentcore_agent",
+    name='destry_agentcore_agent',
     description="""
     Destroy Bedrock AgentCore resources from AWS.
-    
+
     Removes AgentCore endpoint, agent runtime, ECR images/repository, CodeBuild project, memory resources,
     and IAM roles (execution and CodeBuild). Updates configuration file and handles multi-agent cleanup.
 
@@ -156,10 +167,11 @@ mcp.tool(
         FileNotFoundError: If configuration file doesn't exist
         ValueError: If agent is not found or not deployed
         RuntimeError: If destruction fails
-    """
+    """,
 )(destroy.destroy_bedrock_agentcore)
 
-@mcp.tool(name="configure_agentcore_agent")
+
+@mcp.tool(name='configure_agentcore_agent')
 def configure_agentcore_agent_wrapper(
     agent_name: str,
     entrypoint_path: Path,
@@ -171,7 +183,7 @@ def configure_agentcore_agent_wrapper(
     auto_create_ecr: bool = True,
     auto_create_execution_role: bool = True,
     enable_observability: bool = True,
-    memory_mode: Literal["NO_MEMORY", "STM_ONLY", "STM_AND_LTM"] = "STM_ONLY",
+    memory_mode: Literal['NO_MEMORY', 'STM_ONLY', 'STM_AND_LTM'] = 'STM_ONLY',
     requirements_file: Optional[str] = None,
     authorizer_configuration: Optional[Dict[str, Any]] = None,
     request_header_configuration: Optional[Dict[str, Any]] = None,
@@ -181,13 +193,13 @@ def configure_agentcore_agent_wrapper(
     source_path: Optional[str] = None,
 ):
     """Configure Bedrock AgentCore application with deployment settings.
-    
+
     Creates .bedrock_agentcore.yaml configuration file and generates Dockerfile with .dockerignore.
     Handles agent naming, dependency detection, AWS resource setup (IAM roles, ECR), and memory configuration
     (STM/LTM).
-    
+
     IMPORTANT: Only add the necessary arguments and the arguments when requested by a user.
-    
+
     Args:
         agent_name: name of the agent (Use underscores, letter, numbers)
         entrypoint_path: Path to the entrypoint file
@@ -226,15 +238,15 @@ def configure_agentcore_agent_wrapper(
         - network_vpc_id: VPC ID
     """
     import os
-    
+
     # Save the original working directory
     original_cwd = os.getcwd()
-    
+
     try:
         # Change to the specified working directory if provided
         if current_working_directory:
             os.chdir(current_working_directory)
-        
+
         result = configure.configure_bedrock_agentcore(
             agent_name=agent_name,
             entrypoint_path=entrypoint_path,
@@ -252,7 +264,7 @@ def configure_agentcore_agent_wrapper(
             verbose=verbose,
             region=region,
             protocol=protocol,
-            non_interactive=True, # This tool will never use the interactive path
+            non_interactive=True,  # This tool will never use the interactive path
             source_path=source_path,
         )
         # converts the result from ConfigureResult to Dict (json serializable)
