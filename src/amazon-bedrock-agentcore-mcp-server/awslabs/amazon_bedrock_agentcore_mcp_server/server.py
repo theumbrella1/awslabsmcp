@@ -14,8 +14,8 @@
 
 """awslabs AWS Bedrock AgentCore MCP Server implementation."""
 
-from .tools import agents, gateway, identity, logs, memory, session
-from .utils import cache, text_processor
+from .tools import agents, docs, gateway, identity, logs, memory, session
+from .utils import cache
 from bedrock_agentcore_starter_toolkit.operations.runtime import (
     configure,
     destroy,
@@ -25,7 +25,7 @@ from bedrock_agentcore_starter_toolkit.operations.runtime import (
 )
 from mcp.server.fastmcp import FastMCP
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, Literal, Optional
 
 
 APP_NAME = 'amazon-bedrock-agentcore-mcp-server'
@@ -37,6 +37,8 @@ mcp.tool()(logs.access_agentcore_logs)
 mcp.tool()(memory.manage_agentcore_memory)
 mcp.tool()(identity.manage_agentcore_identity)
 mcp.tool()(gateway.manage_agentcore_gateway)
+mcp.tool()(docs.search_agentcore_docs)
+mcp.tool()(docs.fetch_agentcore_doc)
 
 
 @mcp.tool(
@@ -272,124 +274,6 @@ def configure_agentcore_agent_wrapper(
     finally:
         # Restore the original working directory
         os.chdir(original_cwd)
-
-
-@mcp.tool()
-def search_agentcore_docs(query: str, k: int = 5) -> List[Dict[str, Any]]:
-    """Search curated AgentCore documentation and return ranked results with snippets.
-
-    This tool provides access to the complete Amazon Bedrock AgentCore documentation including:
-
-    **Platform Overview:**
-    - What is Bedrock AgentCore, security overview, quotas and limits
-
-    **Platform Services:**
-    - AgentCore Runtime (serverless deployment and scaling)
-    - AgentCore Memory (persistent knowledge with event and semantic memory)
-    - AgentCore Code Interpreter (secure code execution in isolated sandboxes)
-    - AgentCore Browser (fast, secure cloud-based browser for web interaction)
-    - AgentCore Gateway (transform existing APIs into agent tools)
-    - AgentCore Observability (real-time monitoring and tracing)
-    - AgentCore Identity (secure authentication and access management)
-
-    **Getting Started:**
-    - Prerequisites & environment setup
-    - Building your first agent or transforming existing code
-    - Local development & testing
-    - Deployment to AgentCore using CLI
-    - Troubleshooting & enhancement
-
-    **Examples & Tutorials:**
-    - Basic agent creation, memory integration, tool usage
-    - Streaming responses, error handling, authentication
-    - Customer service agents, code review assistants, data analysis
-    - Multi-agent workflows and integrations
-
-    **API Reference:**
-    - Data plane and control API documentation
-
-    Use this to find relevant AgentCore documentation for any development question.
-
-    Args:
-        query: Search query string (e.g., "bedrock agentcore", "memory integration", "deployment guide")
-        k: Maximum number of results to return (default: 5)
-
-    Returns:
-        List of dictionaries containing:
-        - url: Document URL
-        - title: Display title
-        - score: Relevance score (0-1, higher is better)
-        - snippet: Contextual content preview
-
-    """
-    cache.ensure_ready()
-    index = cache.get_index()
-    results = index.search(query, k=k) if index else []
-    url_cache = cache.get_url_cache()
-
-    # Fetch content for all results to enable content-aware ranking
-    for _, doc in results:
-        cache.ensure_page(doc.uri)
-
-    # Re-rank with content now available
-    if index:
-        results = index.search(query, k=k)
-
-    # Build response with real content snippets when available
-    return_docs: List[Dict[str, Any]] = []
-    for score, doc in results:
-        page = url_cache.get(doc.uri)
-        snippet = text_processor.make_snippet(page, doc.display_title)
-        return_docs.append(
-            {
-                'url': doc.uri,
-                'title': doc.display_title,
-                'score': round(score, 3),
-                'snippet': snippet,
-            }
-        )
-    return return_docs
-
-
-@mcp.tool()
-def fetch_agentcore_doc(uri: str) -> Dict[str, Any]:
-    """Fetch full document content by URL.
-
-    Retrieves complete AgentCore documentation content from URLs found via search_agentcore_docs
-    or provided directly. Use this to get full documentation pages including:
-
-    - Complete platform overview and service documentation
-    - Detailed getting started guides with step-by-step instructions
-    - Full API reference documentation
-    - Comprehensive tutorial and example code
-    - Complete deployment and configuration instructions
-    - Integration guides for various frameworks (Strands, LangGraph, CrewAI, etc.)
-
-    This provides the full content when search snippets aren't sufficient for
-    understanding or implementing AgentCore features.
-
-    Args:
-        uri: Document URI (supports http/https URLs)
-
-    Returns:
-        Dictionary containing:
-        - url: Canonical document URL
-        - title: Document title
-        - content: Full document text content
-        - error: Error message (if fetch failed)
-
-    """
-    cache.ensure_ready()
-
-    page = cache.ensure_page(uri)
-    if page is None:
-        return {'error': 'fetch failed', 'url': uri}
-
-    return {
-        'url': page.url,
-        'title': page.title,
-        'content': page.content,
-    }
 
 
 def main() -> None:
