@@ -28,7 +28,7 @@ mcp = FastMCP(APP_NAME)
 mcp.tool()(agents.manage_agentcore_agents)
 mcp.tool()(session.manage_agentcore_session)
 mcp.tool()(logs.access_agentcore_logs)
-#mcp.tool()(memory.manage_agentcore_memory)
+mcp.tool()(memory.manage_agentcore_memory)
 mcp.tool()(identity.manage_agentcore_identity)
 @mcp.tool(
     name="launch_agentcore_agent",
@@ -41,6 +41,8 @@ mcp.tool()(identity.manage_agentcore_identity)
     Args:
         config_path: Path to BedrockAgentCore configuration file (.bedrock_agentcore.yaml)
         agent_name: Name of agent to launch (required for multi-agent projects)
+        local: Whether to run locally
+        use_codebuild: Whether to use CodeBuild for ARM64 builds
         env_vars: Environment variables to pass to container (dict of key-value pairs)
         auto_update_on_conflict: Whether to automatically update when agent already exists (default: False)
 
@@ -63,6 +65,8 @@ mcp.tool()(identity.manage_agentcore_identity)
 def launch_agentcore_agent_wrapper(
     config_path: Path,
     agent_name: Optional[str] = None,
+    local: bool = False,
+    use_codebuild: bool = True,
     env_vars: Optional[Dict[str, str]] = None,
     auto_update_on_conflict: bool = False,
 ):
@@ -70,6 +74,8 @@ def launch_agentcore_agent_wrapper(
     result = launch.launch_bedrock_agentcore(
         config_path=config_path,
         agent_name=agent_name,
+        local=local,
+        use_codebuild=use_codebuild,
         env_vars=env_vars,
         auto_update_on_conflict=auto_update_on_conflict,
     )
@@ -78,6 +84,9 @@ mcp.tool(
     name="invoke_agentcore_agent",
     description="""
     Invoke deployed Bedrock AgentCore endpoint with streaming support.
+    
+    Sends JSON payload to agent endpoint (cloud or local), handles session management with auto-generated
+    session IDs, supports authentication (bearer token, user ID), and returns agent response with session context.
 
     Args:
         config_path: Path to BedrockAgentCore configuration file
@@ -103,7 +112,7 @@ mcp.tool(
 mcp.tool(
     name="get_agentcore_agent_status",
     description="""
-    Get Bedrock AgentCore status including config and runtime details.
+    Get Bedrock AgentCore agent status and runtime details.
 
     Args:
         config_path: Path to BedrockAgentCore configuration file
@@ -123,7 +132,10 @@ mcp.tool(
 mcp.tool(
     name="destry_agentcore_agent",
     description="""
-    Destroy Bedrock AgentCore resources.
+    Destroy Bedrock AgentCore resources from AWS.
+    
+    Removes AgentCore endpoint, agent runtime, ECR images/repository, CodeBuild project, memory resources,
+    and IAM roles (execution and CodeBuild). Updates configuration file and handles multi-agent cleanup.
 
     Args:
         config_path: Path to the configuration file
@@ -183,7 +195,7 @@ def configure_agentcore_agent_wrapper(
         execution_role: AWS execution role ARN or name (auto-created if not provided)
         code_build_execution_role: CodeBuild execution role ARN or name (uses execution_role if not provided)
         ecr_repository: ECR repository URI
-        container_runtime: Container runtime to use
+        container_runtime: Container runtime to use for local builds - "auto" (default, auto-detects Docker/Finch/Podman), "docker", "finch", "podman", or "none" (CodeBuild only)
         auto_create_ecr: Whether to auto-create ECR repository
         auto_create_execution_role: Whether to auto-create execution role if not provided
         enable_observability: Whether to enable observability
