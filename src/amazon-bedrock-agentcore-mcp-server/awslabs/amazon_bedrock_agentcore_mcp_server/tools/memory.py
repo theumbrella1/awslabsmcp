@@ -25,15 +25,12 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 
-# Get logger for this module
 logger = logging.getLogger(__name__)
-
-# Configure console handler if not already present
 if not logger.handlers:
     handler = logging.StreamHandler()
     handler.setFormatter(logging.Formatter('%(message)s'))
     logger.addHandler(handler)
-    logger.propagate = False  # Don't propagate to root logger
+    logger.propagate = False
 
 
 def manage_agentcore_memory(
@@ -150,9 +147,8 @@ def manage_agentcore_memory(
             'content': [{'text': 'boto3 required. Install: pip install boto3'}],
         }
 
-    # Print verbose messages directly for visibility
     if verbose:
-        print(f'🔧 Starting memory operation: {action}', flush=True)
+        print(f'Starting memory operation: {action}', flush=True)
 
     try:
         # Initialize both clients

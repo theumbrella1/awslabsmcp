@@ -57,7 +57,7 @@ def manage_agentcore_identity(
         provider_type: oauth2 (default), api_key, or workload
 
         # OAuth2 specific
-        vendor: SlackOauth2, GitHubOauth2, GoogleOauth2, or CustomOauth2
+        vendor: SlackOauth2, GithubOauth2, GoogleOauth2, or CustomOauth2
         client_id: OAuth2 client ID
         client_secret: OAuth2 client secret (stored encrypted)
         discovery_url: OAuth2 discovery URL (for CustomOauth2)
@@ -111,7 +111,7 @@ def manage_agentcore_identity(
         }
 
     if verbose:
-        print(f'🔧 Starting identity operation: {action} ({provider_type})', flush=True)
+        print(f'Starting identity operation: {action} ({provider_type})', flush=True)
 
     try:
         client = boto3.client('bedrock-agentcore-control', region_name=region)
@@ -447,7 +447,7 @@ def _create_oauth2_provider(
             'clientId': client_id,
             'clientSecret': client_secret,
         }
-    elif vendor == 'GitHubOauth2':
+    elif vendor == 'GithubOauth2':
         oauth2_config['githubOauth2ProviderConfig'] = {
             'clientId': client_id,
             'clientSecret': client_secret,
@@ -486,7 +486,7 @@ def _create_oauth2_provider(
     }
 
     if verbose:
-        print('🚀 Calling CreateOAuth2CredentialProvider API...', flush=True)
+        print('Calling CreateOAuth2CredentialProvider API...', flush=True)
 
     response = client.create_oauth2_credential_provider(**params)
 
@@ -525,7 +525,7 @@ def _create_api_key_provider(
     params = {'name': name, 'apiKey': api_key}
 
     if verbose:
-        print('🚀 Calling CreateApiKeyCredentialProvider API...', flush=True)
+        print('Calling CreateApiKeyCredentialProvider API...', flush=True)
 
     response = client.create_api_key_credential_provider(**params)
 
