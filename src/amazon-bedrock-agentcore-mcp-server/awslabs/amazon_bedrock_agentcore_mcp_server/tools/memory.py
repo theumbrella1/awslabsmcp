@@ -24,6 +24,9 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+import boto3
+from botocore.exceptions import ClientError
+
 
 logger = logging.getLogger(__name__)
 if not logger.handlers:
@@ -31,6 +34,436 @@ if not logger.handlers:
     handler.setFormatter(logging.Formatter('%(message)s'))
     logger.addHandler(handler)
     logger.propagate = False
+
+
+def _format_success_response(title: str, *content_items: Dict[str, Any]) -> Dict[str, Any]:
+    """Format a successful operation response."""
+    return {
+        'status': 'success',
+        'content': [
+            {'text': title},
+            *content_items,
+        ],
+    }
+
+
+def _create(
+    name: str,
+    description: Optional[str],
+    event_expiry_days: int,
+    strategies: Optional[List[Dict[str, Any]]],
+    memory_execution_role_arn: Optional[str],
+    encryption_key_arn: Optional[str],
+    wait_for_active: bool,
+    max_wait: int,
+    region: str,
+    verbose: bool,
+    control_client: Any,
+) -> Dict[str, Any]:
+    """Create new memory resource."""
+    if not name:
+        return {
+            'status': 'error',
+            'content': [{'text': 'name is required for create action'}],
+        }
+
+    if verbose:
+        print(f'Creating memory: {name}', flush=True)
+
+    params = {
+        'name': name,
+        'eventExpiryDuration': event_expiry_days,
+        'clientToken': str(uuid.uuid4()),
+    }
+
+    if description:
+        params['description'] = description
+    if strategies:
+        params['memoryStrategies'] = strategies
+        if verbose:
+            print(f'Memory strategies: {len(strategies)} configured', flush=True)
+    if memory_execution_role_arn:
+        params['memoryExecutionRoleArn'] = memory_execution_role_arn
+    if encryption_key_arn:
+        params['encryptionKeyArn'] = encryption_key_arn
+
+    if verbose:
+        print('Calling CreateMemory API...', flush=True)
+
+    response = control_client.create_memory(**params)
+    memory = response['memory']
+
+    memory_id = memory.get('id', memory.get('memoryId'))
+    status = memory.get('status')
+
+    if verbose:
+        print(f'Memory created with ID: {memory_id}, Status: {status}', flush=True)
+
+    result_content = [
+        {'text': '**Memory Created Successfully**'},
+        {'text': f'**Memory ID:** {memory_id}'},
+        {'text': f'**Status:** {status}'},
+        {'text': f'**Region:** {region}'},
+    ]
+
+    # If wait_for_active is True, poll until ACTIVE
+    if wait_for_active and status != 'ACTIVE':
+        result_content.append({'text': '\n**Waiting for memory to become ACTIVE...**'})
+
+        if verbose:
+            print(f'Polling for ACTIVE status (max {max_wait}s)...', flush=True)
+
+        start_time = time.time()
+        while time.time() - start_time < max_wait:
+            elapsed = int(time.time() - start_time)
+
+            try:
+                status_response = control_client.get_memory(memoryId=memory_id)
+                current_status = status_response['memory']['status']
+
+                if verbose:
+                    print(f'Status check {elapsed}s: {current_status}', flush=True)
+
+                if current_status == 'ACTIVE':
+                    result_content.append({'text': f'\n**Memory is ACTIVE** (took {elapsed}s)'})
+                    if verbose:
+                        print(f'Memory is ACTIVE after {elapsed}s!', flush=True)
+                    break
+                elif current_status == 'FAILED':
+                    failure_reason = status_response['memory'].get('failureReason', 'Unknown')
+                    if verbose:
+                        print(f'Memory creation failed: {failure_reason}')
+                    return {
+                        'status': 'error',
+                        'content': [{'text': f'**Memory creation failed:** {failure_reason}'}],
+                    }
+
+                time.sleep(10)
+            except ClientError as e:
+                if verbose:
+                    print(f'Error checking status: {e}', flush=True)
+                return {
+                    'status': 'error',
+                    'content': [{'text': f'Error checking status: {str(e)}'}],
+                }
+        else:
+            if verbose:
+                print(f'Timeout after {max_wait}s - still provisioning')
+            result_content.append(
+                {'text': f'\n**Timeout** after {max_wait}s - memory still provisioning'}
+            )
+
+    return {'status': 'success', 'content': result_content}
+
+
+def _get(
+    memory_id: str,
+    verbose: bool,
+    control_client: Any,
+) -> Dict[str, Any]:
+    """Get memory details."""
+    if not memory_id:
+        return {
+            'status': 'error',
+            'content': [{'text': 'memory_id is required for get action'}],
+        }
+
+    if verbose:
+        print(f'Getting memory details: {memory_id}', flush=True)
+
+    response = control_client.get_memory(memoryId=memory_id)
+    memory = response['memory']
+
+    if verbose:
+        print(f'Retrieved memory: {memory.get("name")}', flush=True)
+
+    return {
+        'status': 'success',
+        'content': [
+            {'text': '**Memory Details:**'},
+            {'memory': memory},
+        ],
+    }
+
+
+def _list(
+    max_results: int,
+    verbose: bool,
+    control_client: Any,
+) -> Dict[str, Any]:
+    """List all memories."""
+    if verbose:
+        print(f'Listing memories (max {max_results})...', flush=True)
+
+    response = control_client.list_memories(maxResults=min(max_results, 100))
+    memories = response.get('memories', [])
+
+    # Handle pagination
+    next_token = response.get('nextToken')
+    page = 1
+    while next_token and len(memories) < max_results:
+        page += 1
+        remaining = max_results - len(memories)
+
+        if verbose:
+            print(f'Fetching page {page} (total: {len(memories)} so far)...')
+
+        response = control_client.list_memories(
+            maxResults=min(remaining, 100), nextToken=next_token
+        )
+        memories.extend(response.get('memories', []))
+        next_token = response.get('nextToken')
+
+    if verbose:
+        print(f'Found {len(memories)} memories total', flush=True)
+
+    return {
+        'status': 'success',
+        'content': [
+            {'text': f'**Found {len(memories)} memories:**'},
+            {'memories': memories},
+        ],
+    }
+
+
+def _delete(
+    memory_id: str,
+    verbose: bool,
+    control_client: Any,
+) -> Dict[str, Any]:
+    """Delete memory resource."""
+    if not memory_id:
+        return {
+            'status': 'error',
+            'content': [{'text': 'memory_id is required for delete action'}],
+        }
+
+    if verbose:
+        print(f'Deleting memory: {memory_id}', flush=True)
+
+    control_client.delete_memory(memoryId=memory_id, clientToken=str(uuid.uuid4()))
+
+    if verbose:
+        print('Memory deleted successfully', flush=True)
+
+    return {
+        'status': 'success',
+        'content': [
+            {'text': '**Memory Deleted Successfully**'},
+            {'text': f'**Memory ID:** {memory_id}'},
+        ],
+    }
+
+
+def _create_event(
+    memory_id: str,
+    actor_id: str,
+    session_id: Optional[str],
+    event_payload: Optional[Dict[str, Any] | List[Dict[str, Any]]],
+    verbose: bool,
+    data_client: Any,
+) -> Dict[str, Any]:
+    """Create memory event for conversation tracking."""
+    if not memory_id or not actor_id or not event_payload:
+        return {
+            'status': 'error',
+            'content': [
+                {'text': 'memory_id, actor_id, and event_payload required for create_event'}
+            ],
+        }
+
+    if verbose:
+        print(f'Creating event for actor: {actor_id}, session: {session_id}')
+
+    # Normalize event_payload format
+    if isinstance(event_payload, list):
+        payload = event_payload
+    else:
+        payload = [event_payload]
+
+    # Ensure conversational payloads have correct structure
+    normalized_payload = []
+    for item in payload:
+        if item and isinstance(item, dict) and 'conversational' in item:
+            conv = item['conversational']
+            if isinstance(conv, dict):
+                # Ensure content is a dict with 'text' key
+                if isinstance(conv.get('content'), str):
+                    conv['content'] = {'text': conv['content']}
+                # Ensure role is uppercase
+                if 'role' in conv:
+                    conv['role'] = conv['role'].upper()
+        normalized_payload.append(item)
+
+    params = {
+        'memoryId': memory_id,
+        'actorId': actor_id,
+        'eventTimestamp': (
+            datetime.now(datetime.UTC) if hasattr(datetime, 'UTC') else datetime.utcnow()
+        ),
+        'payload': normalized_payload,
+    }
+
+    if session_id:
+        params['sessionId'] = session_id
+
+    if verbose:
+        print('Calling CreateEvent API...', flush=True)
+
+    response = data_client.create_event(**params)
+
+    if verbose:
+        print('Event created successfully', flush=True)
+
+    return {
+        'status': 'success',
+        'content': [
+            {'text': '**Event Created Successfully**'},
+            {'text': f'**Event ID:** {response.get("eventId")}'},
+            {'text': f'**Memory ID:** {memory_id}'},
+        ],
+    }
+
+
+def _retrieve(
+    memory_id: str,
+    namespace: str,
+    search_query: str,
+    top_k: int,
+    verbose: bool,
+    data_client: Any,
+) -> Dict[str, Any]:
+    """Retrieve memories using semantic search."""
+    if not all([memory_id, namespace, search_query]):
+        return {
+            'status': 'error',
+            'content': [{'text': 'memory_id, namespace, and search_query required for retrieve'}],
+        }
+
+    if verbose:
+        print(f'Retrieving memories from namespace: {namespace}', flush=True)
+        print(f'Search query: {search_query}, top_k: {top_k}', flush=True)
+
+    params = {
+        'memoryId': memory_id,
+        'namespace': namespace,
+        'searchCriteria': {'searchQuery': search_query, 'topK': top_k},
+    }
+
+    response = data_client.retrieve_memory_records(**params)
+    records = response.get('memoryRecordSummaries', []) #TODO: this should throw an error if there is none there
+
+    if verbose:
+        print(f'Retrieved {len(records)} memory records', flush=True)
+
+    return {
+        'status': 'success',
+        'content': [
+            {'text': f'**Retrieved {len(records)} memory records:**'},
+            {'records': records},
+        ],
+    }
+
+
+def _list_actors(
+    memory_id: str,
+    max_results: int,
+    verbose: bool,
+    data_client: Any,
+) -> Dict[str, Any]:
+    """List actors in a memory."""
+    if not memory_id:
+        return {
+            'status': 'error',
+            'content': [{'text': 'memory_id required for list_actors'}],
+        }
+
+    if verbose:
+        print(f'Listing actors for memory: {memory_id}', flush=True)
+
+    params = {'memoryId': memory_id, 'maxResults': min(max_results, 100)}
+
+    response = data_client.list_actors(**params)
+    actors = response.get('actorSummaries', [])
+
+    if verbose:
+        print(f'Found {len(actors)} actors', flush=True)
+
+    return {
+        'status': 'success',
+        'content': [
+            {'text': f'**Found {len(actors)} actors:**'},
+            {'actors': actors},
+        ],
+    }
+
+
+def _list_sessions(
+    memory_id: str,
+    actor_id: str,
+    max_results: int,
+    verbose: bool,
+    data_client: Any,
+) -> Dict[str, Any]:
+    """List sessions for an actor."""
+    if not all([memory_id, actor_id]):
+        return {
+            'status': 'error',
+            'content': [{'text': 'memory_id and actor_id required for list_sessions'}],
+        }
+
+    if verbose:
+        print(f'Listing sessions for actor: {actor_id}', flush=True)
+
+    params = {
+        'memoryId': memory_id,
+        'actorId': actor_id,
+        'maxResults': min(max_results, 100),
+    }
+
+    response = data_client.list_sessions(**params)
+    sessions = response.get('sessionSummaries', [])
+
+    if verbose:
+        print(f'Found {len(sessions)} sessions', flush=True)
+
+    return {
+        'status': 'success',
+        'content': [
+            {'text': f'**Found {len(sessions)} sessions:**'},
+            {'sessions': sessions},
+        ],
+    }
+
+
+def _get_status(
+    memory_id: str,
+    verbose: bool,
+    control_client: Any,
+) -> Dict[str, Any]:
+    """Get memory provisioning status."""
+    if not memory_id:
+        return {
+            'status': 'error',
+            'content': [{'text': 'memory_id required for get_status'}],
+        }
+
+    if verbose:
+        print(f'Checking status for memory: {memory_id}', flush=True)
+
+    response = control_client.get_memory(memoryId=memory_id)
+    status = response['memory']['status']
+
+    if verbose:
+        print(f'Memory status: {status}', flush=True)
+
+    return {
+        'status': 'success',
+        'content': [
+            {'text': f'**Memory Status:** {status}'},
+            {'text': f'**Memory ID:** {memory_id}'},
+        ],
+    }
 
 
 def manage_agentcore_memory(
@@ -138,14 +571,6 @@ def manage_agentcore_memory(
         # Delete memory
         memory(action="delete", memory_id="my-memory-abc123")
     """
-    try:
-        import boto3
-        from botocore.exceptions import ClientError
-    except ImportError:
-        return {
-            'status': 'error',
-            'content': [{'text': 'boto3 required. Install: pip install boto3'}],
-        }
 
     if verbose:
         print(f'Starting memory operation: {action}', flush=True)
@@ -158,384 +583,86 @@ def manage_agentcore_memory(
         if verbose:
             print(f'Initialized clients for region: {region}', flush=True)
 
-        # Route to appropriate operation
-        if action == 'create':
-            if not name:
-                return {
-                    'status': 'error',
-                    'content': [{'text': 'name is required for create action'}],
-                }
-
-            if verbose:
-                print(f'Creating memory: {name}', flush=True)
-
-            params = {
-                'name': name,
-                'eventExpiryDuration': event_expiry_days,
-                'clientToken': str(uuid.uuid4()),
-            }
-
-            if description:
-                params['description'] = description
-            if strategies:
-                params['memoryStrategies'] = strategies
-                if verbose:
-                    print(
-                        f'Memory strategies: {len(strategies)} configured',
-                        flush=True,
-                    )
-            if memory_execution_role_arn:
-                params['memoryExecutionRoleArn'] = memory_execution_role_arn
-            if encryption_key_arn:
-                params['encryptionKeyArn'] = encryption_key_arn
-
-            if verbose:
-                print('Calling CreateMemory API...', flush=True)
-
-            response = control_client.create_memory(**params)
-            memory = response['memory']
-
-            memory_id = memory.get('id', memory.get('memoryId'))
-            status = memory.get('status')
-
-            if verbose:
-                print(
-                    f'Memory created with ID: {memory_id}, Status: {status}',
-                    flush=True,
-                )
-
-            result_content = [
-                {'text': '**Memory Created Successfully**'},
-                {'text': f'**Memory ID:** {memory_id}'},
-                {'text': f'**Status:** {status}'},
-                {'text': f'**Region:** {region}'},
-            ]
-
-            # If wait_for_active is True, poll until ACTIVE
-            if wait_for_active and status != 'ACTIVE':
-                result_content.append({'text': '\n**Waiting for memory to become ACTIVE...**'})
-
-                if verbose:
-                    print(f'Polling for ACTIVE status (max {max_wait}s)...', flush=True)
-
-                start_time = time.time()
-                while time.time() - start_time < max_wait:
-                    elapsed = int(time.time() - start_time)
-
-                    try:
-                        status_response = control_client.get_memory(memoryId=memory_id)
-                        current_status = status_response['memory']['status']
-
-                        if verbose:
-                            print(
-                                f'Status check {elapsed}s: {current_status}',
-                                flush=True,
-                            )
-
-                        if current_status == 'ACTIVE':
-                            result_content.append(
-                                {'text': f'\n**Memory is ACTIVE** (took {elapsed}s)'}
-                            )
-                            if verbose:
-                                print(f'Memory is ACTIVE after {elapsed}s!', flush=True)
-                            break
-                        elif current_status == 'FAILED':
-                            failure_reason = status_response['memory'].get(
-                                'failureReason', 'Unknown'
-                            )
-                            if verbose:
-                                print(f'Memory creation failed: {failure_reason}')
-                            return {
-                                'status': 'error',
-                                'content': [
-                                    {'text': f'**Memory creation failed:** {failure_reason}'}
-                                ],
-                            }
-
-                        time.sleep(10)
-                    except ClientError as e:
-                        if verbose:
-                            print(f'Error checking status: {e}', flush=True)
-                        return {
-                            'status': 'error',
-                            'content': [{'text': f'Error checking status: {str(e)}'}],
-                        }
-                else:
-                    if verbose:
-                        print(f'Timeout after {max_wait}s - still provisioning')
-                    result_content.append(
-                        {'text': f'\n**Timeout** after {max_wait}s - memory still provisioning'}
-                    )
-
-            return {'status': 'success', 'content': result_content}
-
-        elif action == 'get':
-            if not memory_id:
-                return {
-                    'status': 'error',
-                    'content': [{'text': 'memory_id is required for get action'}],
-                }
-
-            if verbose:
-                print(f'Getting memory details: {memory_id}', flush=True)
-
-            response = control_client.get_memory(memoryId=memory_id)
-            memory = response['memory']
-
-            if verbose:
-                print(f'Retrieved memory: {memory.get("name")}', flush=True)
-
-            return {
-                'status': 'success',
-                'content': [
-                    {'text': '**Memory Details:**'},
-                    {'text': json.dumps(memory, indent=2, default=str)},
-                ],
-            }
-
-        elif action == 'list':
-            if verbose:
-                print(f'Listing memories (max {max_results})...', flush=True)
-
-            response = control_client.list_memories(maxResults=min(max_results, 100))
-            memories = response.get('memories', [])
-
-            # Handle pagination
-            next_token = response.get('nextToken')
-            page = 1
-            while next_token and len(memories) < max_results:
-                page += 1
-                remaining = max_results - len(memories)
-
-                if verbose:
-                    print(f'Fetching page {page} (total: {len(memories)} so far)...')
-
-                response = control_client.list_memories(
-                    maxResults=min(remaining, 100), nextToken=next_token
-                )
-                memories.extend(response.get('memories', []))
-                next_token = response.get('nextToken')
-
-            if verbose:
-                print(f'Found {len(memories)} memories total', flush=True)
-
-            return {
-                'status': 'success',
-                'content': [
-                    {'text': f'**Found {len(memories)} memories:**'},
-                    {'text': json.dumps(memories, indent=2, default=str)},
-                ],
-            }
-
-        elif action == 'delete':
-            if not memory_id:
-                return {
-                    'status': 'error',
-                    'content': [{'text': 'memory_id is required for delete action'}],
-                }
-
-            if verbose:
-                print(f'Deleting memory: {memory_id}', flush=True)
-
-            control_client.delete_memory(memoryId=memory_id, clientToken=str(uuid.uuid4()))
-
-            if verbose:
-                print('Memory deleted successfully', flush=True)
-
-            return {
-                'status': 'success',
-                'content': [
-                    {'text': '**Memory Deleted Successfully**'},
-                    {'text': f'**Memory ID:** {memory_id}'},
-                ],
-            }
-
-        elif action == 'create_event':
-            if not memory_id or not actor_id or not event_payload:
-                return {
-                    'status': 'error',
-                    'content': [
-                        {
-                            'text': 'memory_id, actor_id, and event_payload required for create_event'
-                        }
-                    ],
-                }
-
-            if verbose:
-                print(f'Creating event for actor: {actor_id}, session: {session_id}')
-
-            # Normalize event_payload format
-            if isinstance(event_payload, list):
-                payload = event_payload
-            else:
-                payload = [event_payload]
-
-            # Ensure conversational payloads have correct structure
-            normalized_payload = []
-            for item in payload:
-                if item and isinstance(item, dict) and 'conversational' in item:
-                    conv = item['conversational']
-                    if isinstance(conv, dict):
-                        # Ensure content is a dict with 'text' key
-                        if isinstance(conv.get('content'), str):
-                            conv['content'] = {'text': conv['content']}
-                        # Ensure role is uppercase
-                        if 'role' in conv:
-                            conv['role'] = conv['role'].upper()
-                normalized_payload.append(item)
-
-            params = {
-                'memoryId': memory_id,
-                'actorId': actor_id,
-                'eventTimestamp': (
-                    datetime.now(datetime.UTC) if hasattr(datetime, 'UTC') else datetime.utcnow()
-                ),
-                'payload': normalized_payload,
-            }
-
-            if session_id:
-                params['sessionId'] = session_id
-
-            if verbose:
-                print('Calling CreateEvent API...', flush=True)
-
-            response = data_client.create_event(**params)
-
-            if verbose:
-                print('Event created successfully', flush=True)
-
-            return {
-                'status': 'success',
-                'content': [
-                    {'text': '**Event Created Successfully**'},
-                    {'text': f'**Event ID:** {response.get("eventId")}'},
-                    {'text': f'**Memory ID:** {memory_id}'},
-                ],
-            }
-
-        elif action == 'retrieve':
-            if not all([memory_id, namespace, search_query]):
-                return {
-                    'status': 'error',
-                    'content': [
-                        {'text': 'memory_id, namespace, and search_query required for retrieve'}
-                    ],
-                }
-
-            if verbose:
-                print(f'Retrieving memories from namespace: {namespace}', flush=True)
-                print(f'Search query: {search_query}, top_k: {top_k}', flush=True)
-
-            params = {
-                'memoryId': memory_id,
-                'namespace': namespace,
-                'searchCriteria': {'searchQuery': search_query, 'topK': top_k},
-            }
-
-            response = data_client.retrieve_memory_records(**params)
-            records = response.get('memoryRecords', [])
-
-            if verbose:
-                print(f'Retrieved {len(records)} memory records', flush=True)
-
-            return {
-                'status': 'success',
-                'content': [
-                    {'text': f'**Retrieved {len(records)} memory records:**'},
-                    {'text': json.dumps(records, indent=2, default=str)},
-                ],
-            }
-
-        elif action == 'list_actors':
-            if not memory_id:
-                return {
-                    'status': 'error',
-                    'content': [{'text': 'memory_id required for list_actors'}],
-                }
-
-            if verbose:
-                print(f'Listing actors for memory: {memory_id}', flush=True)
-
-            params = {'memoryId': memory_id, 'maxResults': min(max_results, 100)}
-
-            response = data_client.list_actors(**params)
-            actors = response.get('actors', [])
-
-            if verbose:
-                print(f'Found {len(actors)} actors', flush=True)
-
-            return {
-                'status': 'success',
-                'content': [
-                    {'text': f'**Found {len(actors)} actors:**'},
-                    {'text': json.dumps(actors, indent=2, default=str)},
-                ],
-            }
-
-        elif action == 'list_sessions':
-            if not all([memory_id, actor_id]):
-                return {
-                    'status': 'error',
-                    'content': [{'text': 'memory_id and actor_id required for list_sessions'}],
-                }
-
-            if verbose:
-                print(f'Listing sessions for actor: {actor_id}', flush=True)
-
-            params = {
-                'memoryId': memory_id,
-                'actorId': actor_id,
-                'maxResults': min(max_results, 100),
-            }
-
-            response = data_client.list_sessions(**params)
-            sessions = response.get('sessions', [])
-
-            if verbose:
-                print(f'Found {len(sessions)} sessions', flush=True)
-
-            return {
-                'status': 'success',
-                'content': [
-                    {'text': f'**Found {len(sessions)} sessions:**'},
-                    {'text': json.dumps(sessions, indent=2, default=str)},
-                ],
-            }
-
-        elif action == 'get_status':
-            if not memory_id:
-                return {
-                    'status': 'error',
-                    'content': [{'text': 'memory_id required for get_status'}],
-                }
-
-            if verbose:
-                print(f'Checking status for memory: {memory_id}', flush=True)
-
-            response = control_client.get_memory(memoryId=memory_id)
-            status = response['memory']['status']
-
-            if verbose:
-                print(f'Memory status: {status}', flush=True)
-
-            return {
-                'status': 'success',
-                'content': [
-                    {'text': f'**Memory Status:** {status}'},
-                    {'text': f'**Memory ID:** {memory_id}'},
-                ],
-            }
-
-        else:
+        # Action dispatch registry
+        action_handlers: Dict[str, Any] = {
+            'create': lambda: _create(
+                name=name,
+                description=description,
+                event_expiry_days=event_expiry_days,
+                strategies=strategies,
+                memory_execution_role_arn=memory_execution_role_arn,
+                encryption_key_arn=encryption_key_arn,
+                wait_for_active=wait_for_active,
+                max_wait=max_wait,
+                region=region,
+                verbose=verbose,
+                control_client=control_client,
+            ),
+            'get': lambda: _get(
+                memory_id=memory_id,
+                verbose=verbose,
+                control_client=control_client,
+            ),
+            'list': lambda: _list(
+                max_results=max_results,
+                verbose=verbose,
+                control_client=control_client,
+            ),
+            'delete': lambda: _delete(
+                memory_id=memory_id,
+                verbose=verbose,
+                control_client=control_client,
+            ),
+            'create_event': lambda: _create_event(
+                memory_id=memory_id,
+                actor_id=actor_id,
+                session_id=session_id,
+                event_payload=event_payload,
+                verbose=verbose,
+                data_client=data_client,
+            ),
+            'retrieve': lambda: _retrieve(
+                memory_id=memory_id,
+                namespace=namespace,
+                search_query=search_query,
+                top_k=top_k,
+                verbose=verbose,
+                data_client=data_client,
+            ),
+            'list_actors': lambda: _list_actors(
+                memory_id=memory_id,
+                max_results=max_results,
+                verbose=verbose,
+                data_client=data_client,
+            ),
+            'list_sessions': lambda: _list_sessions(
+                memory_id=memory_id,
+                actor_id=actor_id,
+                max_results=max_results,
+                verbose=verbose,
+                data_client=data_client,
+            ),
+            'get_status': lambda: _get_status(
+                memory_id=memory_id,
+                verbose=verbose,
+                control_client=control_client,
+            ),
+        }
+
+        # Dispatch to appropriate handler
+        handler = action_handlers.get(action)
+        if not handler:
             return {
                 'status': 'error',
                 'content': [
                     {
-                        'text': f'Unknown action: {action}. Valid: create, get, list, delete, '
-                        'create_event, retrieve, list_actors, list_sessions, get_status'
+                        'text': f'Unknown action: {action}. Valid: {", ".join(action_handlers.keys())}'
                     }
                 ],
             }
+
+        result = handler()
+        return result
 
     except ClientError as e:
         error_code = e.response.get('Error', {}).get('Code', 'Unknown')
