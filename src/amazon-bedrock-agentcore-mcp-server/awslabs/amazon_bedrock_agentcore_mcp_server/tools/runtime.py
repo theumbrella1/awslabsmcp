@@ -199,13 +199,7 @@ def _list(
     max_results: int,
 ) -> Dict[str, Any]:
     """List all agent runtimes in the region."""
-    try:
-        import boto3
-    except ImportError:
-        return {
-            'status': 'error',
-            'content': [{'text': 'boto3 required. Install: pip install boto3'}],
-        }
+    import boto3
 
     client = boto3.client('bedrock-agentcore-control', region_name=region or 'us-west-2')
 
