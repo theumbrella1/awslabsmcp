@@ -59,6 +59,11 @@ def _configure(
     region: Optional[str],
     protocol: Optional[str],
     source_path: Optional[str],
+    idle_timeout: Optional[int],
+    deployment_type: str,
+    runtime_type: Optional[str],
+    auto_create_s3: bool,
+    s3_path: Optional[str],
 ) -> Dict[str, Any]:
     """Configure agent with deployment settings."""
     if not all([agent_name, entrypoint_path]):
@@ -90,6 +95,11 @@ def _configure(
         protocol=protocol,
         non_interactive=True,
         source_path=source_path,
+        idle_timeout=idle_timeout,
+        deployment_type=deployment_type,
+        runtime_type=runtime_type,
+        auto_create_s3=auto_create_s3,
+        s3_path=s3_path,
     )
 
     return _format_success_response('**Agent Configured Successfully**', result)
@@ -268,6 +278,11 @@ def manage_agentcore_runtime(
     force: bool = False,
     delete_ecr_repo: bool = False,
     max_results: int = 100,
+    idle_timeout: Optional[int] = None,
+    deployment_type: str = "direct_code_deploy",
+    runtime_type: Optional[str] = "PYTHON_3_13",
+    auto_create_s3: bool = True,
+    s3_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Manage Bedrock AgentCore agent runtime lifecycle and operations.
 
@@ -312,6 +327,11 @@ def manage_agentcore_runtime(
         force: Skip confirmation prompts
         delete_ecr_repo: Delete ECR repository after removing images
         max_results: Maximum results for list operation (default: 100)
+        idle_timeout: Idle runtime session timeout in seconds (60-28800)
+        deployment_type: Deployment type - "direct_code_deploy" (default) or "container"
+        runtime_type: Python runtime version for direct_code_deploy (e.g., "PYTHON_3_10", "PYTHON_3_11") (default: "PYTHON_3_13")
+        auto_create_s3: Whether to auto-create S3 bucket for direct_code_deploy deployment
+        s3_path: S3 path for direct_code_deploy deployment
 
     Returns:
         Dict with status and operation results
@@ -386,6 +406,11 @@ def manage_agentcore_runtime(
             region=region,
             protocol=protocol,
             source_path=source_path,
+            idle_timeout=idle_timeout,
+            deployment_type=deployment_type,
+            runtime_type=runtime_type,
+            auto_create_s3=auto_create_s3,
+            s3_path=s3_path,
         ),
         'launch': lambda: _launch(
             config_path=config_path,

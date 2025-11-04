@@ -106,14 +106,9 @@ def _create_oauth2_provider(
 def _create_api_key_provider(
     client: Any,
     name: str,
-    api_key: Optional[str],
+    api_key: str,
 ) -> Dict[str, Any]:
     """Create API key credential provider."""
-    if not api_key:
-        return {
-            'status': 'error',
-            'content': [{'text': 'api_key required for API key provider'}],
-        }
 
     response = client.create_api_key_credential_provider(name=name, apiKey=api_key)
 
@@ -137,7 +132,7 @@ def _get(
     else:
         return {
             'status': 'error',
-            'content': [{'text': f'Unknown provider_type: {provider_type}'}],
+            'content': [{'text': f'Unknown provider_type: {provider_type}, provider_type must be oauth2 or api_key'}],
         }
 
     return {
@@ -156,9 +151,11 @@ def _list(
 ) -> Dict[str, Any]:
     """List providers."""
     if provider_type == 'oauth2':
-        response = client.list_oauth2_credential_providers(maxResults=min(max_results, 100))
+        # the maximum value for maxResults is 20 https://docs.aws.amazon.com/bedrock-agentcore-control/latest/APIReference/API_ListOauth2CredentialProviders.html
+        response = client.list_oauth2_credential_providers(maxResults=min(max_results, 20))
         items = response.get('credentialProviders', [])
     elif provider_type == 'api_key':
+        # the maximum value for maxResults is 100 https://docs.aws.amazon.com/bedrock-agentcore-control/latest/APIReference/API_ListApiKeyCredentialProviders.html
         response = client.list_api_key_credential_providers(maxResults=min(max_results, 100))
         items = response.get('credentialProviders', [])
     else:
@@ -189,7 +186,7 @@ def _delete(
     else:
         return {
             'status': 'error',
-            'content': [{'text': f'Unknown provider_type: {provider_type}'}],
+            'content': [{'text': f'Unknown provider_type: {provider_type}, provider_type must be oauth2 or api_key'}],
         }
 
     return _format_success_response(
@@ -235,7 +232,7 @@ def manage_agentcore_identity(
         api_key: API key value (stored encrypted)
 
         # Common
-        max_results: Max results for list (1-100, default: 20)
+        max_results: Max results for list (1-100 for api_key, 1-20 for oauth2, default: 20)
         region: AWS region (default: us-west-2)
 
     Returns:
