@@ -18,7 +18,6 @@ Comprehensive gateway operations including create, list, get, delete, and target
 """
 
 import json
-import logging
 import threading
 from typing import Any, Dict, Optional
 
@@ -27,21 +26,12 @@ from bedrock_agentcore_starter_toolkit.operations.gateway import GatewayClient
 from botocore.exceptions import ClientError
 
 
-logger = logging.getLogger(__name__)
-if not logger.handlers:
-    handler = logging.StreamHandler()
-    handler.setFormatter(logging.Formatter('%(message)s'))
-    logger.addHandler(handler)
-    logger.propagate = False
-
-
 def _create_gateway(
     name: str,
     role_arn: Optional[str],
     authorizer_config: Optional[str],
     enable_semantic_search: bool,
     region: str,
-    verbose: bool,
 ) -> Dict[str, Any]:
     """Create new gateway resource."""
     if not name:
@@ -49,12 +39,6 @@ def _create_gateway(
             'status': 'error',
             'content': [{'text': 'name is required for create_gateway action'}],
         }
-
-    if verbose:
-        print(f'Creating gateway: {name}', flush=True)
-
-    bg_logger = logging.getLogger('agentcore.mcp.gateway.background')
-    bg_logger.setLevel(logging.INFO)
 
     def _worker() -> None:
         try:
@@ -68,14 +52,11 @@ def _create_gateway(
                 json_authorizer_config_inner,
                 enable_semantic_search,
             )
-        except Exception as e:
-            bg_logger.warning('Background gateway creation error: %s', str(e))
+        except Exception:
+            pass
 
     t = threading.Thread(target=_worker, daemon=True)
     t.start()
-
-    if verbose:
-        print('Gateway creation started in background', flush=True)
 
     return {
         'status': 'success',
@@ -97,7 +78,6 @@ def _create_target(
     target_payload: Optional[Any],
     credentials: Optional[Any],
     region: str,
-    verbose: bool,
 ) -> Dict[str, Any]:
     """Create gateway target."""
     if not any([gateway_arn, gateway_url]):
@@ -105,9 +85,6 @@ def _create_target(
             'status': 'error',
             'content': [{'text': 'gateway_arn or gateway_url required for create_target'}],
         }
-
-    if verbose:
-        print(f'Creating gateway target: {target_name or "(unnamed)"}', flush=True)
 
     # Validate target_type
     allowed_types = {'openApiSchema', 'smithyModel', 'lambda', 'mcpServer'}
@@ -169,9 +146,6 @@ def _create_target(
         credentials=json_credentials,
     )
 
-    if verbose:
-        print('Gateway target created successfully', flush=True)
-
     return {
         'status': 'success',
         'content': [
@@ -185,13 +159,9 @@ def _list_gateways(
     name: Optional[str],
     max_results: int,
     region: str,
-    verbose: bool,
     control_client: Any,
 ) -> Dict[str, Any]:
     """List all gateways."""
-    if verbose:
-        print(f'Listing gateways (max {max_results})...', flush=True)
-
     next_token = None
     items = []
     while True:
@@ -207,9 +177,6 @@ def _list_gateways(
         if not next_token or (name and items) or len(items) >= max_results:
             break
 
-    if verbose:
-        print(f'Found {len(items)} gateways', flush=True)
-
     return {
         'status': 'success',
         'content': [
@@ -223,7 +190,6 @@ def _get_gateway(
     gateway_identifier: Optional[str],
     name: Optional[str],
     region: str,
-    verbose: bool,
     control_client: Any,
 ) -> Dict[str, Any]:
     """Get gateway details."""
@@ -233,15 +199,10 @@ def _get_gateway(
             'content': [{'text': 'gateway_identifier or name required for get_gateway'}],
         }
 
-    if verbose:
-        print(f'Getting gateway: {gateway_identifier or name}', flush=True)
-
     # Prefer explicit identifier
     if gateway_identifier:
         try:
             result = control_client.get_gateway(gatewayIdentifier=gateway_identifier)
-            if verbose:
-                print('Gateway retrieved successfully', flush=True)
             return {
                 'status': 'success',
                 'content': [
@@ -270,8 +231,6 @@ def _get_gateway(
                     }
                 try:
                     result = control_client.get_gateway(gatewayIdentifier=gateway_id)
-                    if verbose:
-                        print('Gateway retrieved successfully', flush=True)
                     return {
                         'status': 'success',
                         'content': [
@@ -293,7 +252,6 @@ def _delete_gateway(
     name: Optional[str],
     gateway_arn: Optional[str],
     region: str,
-    verbose: bool,
     control_client: Any,
 ) -> Dict[str, Any]:
     """Delete gateway resource."""
@@ -324,9 +282,6 @@ def _delete_gateway(
             'content': [{'text': 'gateway_identifier, gateway_arn, or name required'}],
         }
 
-    if verbose:
-        print(f'Deleting gateway: {resolved_id}', flush=True)
-
     # Must have zero targets to delete
     targets_resp = control_client.list_gateway_targets(gatewayIdentifier=resolved_id)
     targets = targets_resp.get('items', [])
@@ -337,9 +292,6 @@ def _delete_gateway(
         }
 
     control_client.delete_gateway(gatewayIdentifier=resolved_id)
-
-    if verbose:
-        print('Gateway deleted successfully', flush=True)
 
     return {
         'status': 'success',
@@ -356,7 +308,6 @@ def _list_targets(
     gateway_arn: Optional[str],
     max_results: int,
     region: str,
-    verbose: bool,
     control_client: Any,
 ) -> Dict[str, Any]:
     """List gateway targets."""
@@ -387,9 +338,6 @@ def _list_targets(
             'content': [{'text': 'gateway_identifier, gateway_arn, or name required'}],
         }
 
-    if verbose:
-        print(f'Listing targets for gateway: {resolved_id}', flush=True)
-
     next_token = None
     items = []
     while True:
@@ -404,9 +352,6 @@ def _list_targets(
             break
     if len(items) > max_results:
         items = items[:max_results]
-
-    if verbose:
-        print(f'Found {len(items)} targets', flush=True)
 
     return {
         'status': 'success',
@@ -424,7 +369,6 @@ def _delete_target(
     target_id: Optional[str],
     target_name: Optional[str],
     region: str,
-    verbose: bool,
     control_client: Any,
 ) -> Dict[str, Any]:
     """Delete gateway target."""
@@ -471,13 +415,7 @@ def _delete_target(
     if not resolved_target_id:
         return {'status': 'error', 'content': [{'text': 'target_id or target_name required'}]}
 
-    if verbose:
-        print(f'Deleting target: {resolved_target_id}', flush=True)
-
     control_client.delete_gateway_target(gatewayIdentifier=resolved_id, targetId=resolved_target_id)
-
-    if verbose:
-        print('Gateway target deleted successfully', flush=True)
 
     return {
         'status': 'success',
@@ -505,7 +443,6 @@ def manage_agentcore_gateway(
     credentials: Optional[Any] = None,
     target_id: Optional[str] = None,
     max_results: int = 50,
-    verbose: bool = False,
 ) -> Dict[str, Any]:
     """Manage Bedrock AgentCore Gateway resources.
 
@@ -533,7 +470,6 @@ def manage_agentcore_gateway(
         credentials: JSON string or dict credentials payload
         target_id: Target id for delete operations
         max_results: Maximum results for list operations (default: 50)
-        verbose: Enable verbose logging (default: False)
 
     Returns:
         Dict with status and operation results
@@ -571,15 +507,9 @@ def manage_agentcore_gateway(
         # Delete gateway
         gateway(action="delete_gateway", gateway_identifier="gw-123")
     """
-    if verbose:
-        print(f'Starting gateway operation: {action}', flush=True)
-
     try:
         # Initialize client
         control_client = boto3.client('bedrock-agentcore-control', region_name=region)
-
-        if verbose:
-            print(f'Initialized client for region: {region}', flush=True)
 
         # Normalize authorizer_config to JSON string if dict
         auth_cfg_json: Optional[str] = None
@@ -596,7 +526,6 @@ def manage_agentcore_gateway(
                 authorizer_config=auth_cfg_json,
                 enable_semantic_search=enable_semantic_search,
                 region=region,
-                verbose=verbose,
             ),
             'create_target': lambda: _create_target(
                 gateway_arn=gateway_arn,
@@ -607,20 +536,17 @@ def manage_agentcore_gateway(
                 target_payload=target_payload,
                 credentials=credentials,
                 region=region,
-                verbose=verbose,
             ),
             'list_gateways': lambda: _list_gateways(
                 name=name,
                 max_results=max_results,
                 region=region,
-                verbose=verbose,
                 control_client=control_client,
             ),
             'get_gateway': lambda: _get_gateway(
                 gateway_identifier=gateway_identifier,
                 name=name,
                 region=region,
-                verbose=verbose,
                 control_client=control_client,
             ),
             'delete_gateway': lambda: _delete_gateway(
@@ -628,7 +554,6 @@ def manage_agentcore_gateway(
                 name=name,
                 gateway_arn=gateway_arn,
                 region=region,
-                verbose=verbose,
                 control_client=control_client,
             ),
             'list_gateway_targets': lambda: _list_targets(
@@ -637,7 +562,6 @@ def manage_agentcore_gateway(
                 gateway_arn=gateway_arn,
                 max_results=max_results,
                 region=region,
-                verbose=verbose,
                 control_client=control_client,
             ),
             'delete_gateway_target': lambda: _delete_target(
@@ -647,7 +571,6 @@ def manage_agentcore_gateway(
                 target_id=target_id,
                 target_name=target_name,
                 region=region,
-                verbose=verbose,
                 control_client=control_client,
             ),
         }
@@ -671,9 +594,6 @@ def manage_agentcore_gateway(
         error_code = e.response.get('Error', {}).get('Code', 'Unknown')
         error_message = e.response.get('Error', {}).get('Message', str(e))
 
-        if verbose:
-            print(f'AWS Error: {error_code} - {error_message}', flush=True)
-
         return {
             'status': 'error',
             'content': [
@@ -684,9 +604,6 @@ def manage_agentcore_gateway(
         }
 
     except Exception as e:
-        if verbose:
-            print(f'Unexpected Error: {str(e)}', flush=True)
-
         return {
             'status': 'error',
             'content': [

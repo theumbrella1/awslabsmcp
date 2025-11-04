@@ -18,7 +18,6 @@ Comprehensive memory operations including create, list, retrieve, and delete.
 """
 
 import json
-import logging
 import time
 import uuid
 from datetime import datetime
@@ -26,15 +25,6 @@ from typing import Any, Dict, List, Optional
 
 import boto3
 from botocore.exceptions import ClientError
-
-
-logger = logging.getLogger(__name__)
-if not logger.handlers:
-    handler = logging.StreamHandler()
-    handler.setFormatter(logging.Formatter('%(message)s'))
-    logger.addHandler(handler)
-    logger.propagate = False
-
 
 def _format_success_response(title: str, *content_items: Dict[str, Any]) -> Dict[str, Any]:
     """Format a successful operation response."""
@@ -57,7 +47,6 @@ def _create(
     wait_for_active: bool,
     max_wait: int,
     region: str,
-    verbose: bool,
     control_client: Any,
 ) -> Dict[str, Any]:
     """Create new memory resource."""
@@ -67,8 +56,7 @@ def _create(
             'content': [{'text': 'name is required for create action'}],
         }
 
-    if verbose:
-        print(f'Creating memory: {name}', flush=True)
+
 
     params = {
         'name': name,
@@ -80,24 +68,16 @@ def _create(
         params['description'] = description
     if strategies:
         params['memoryStrategies'] = strategies
-        if verbose:
-            print(f'Memory strategies: {len(strategies)} configured', flush=True)
     if memory_execution_role_arn:
         params['memoryExecutionRoleArn'] = memory_execution_role_arn
     if encryption_key_arn:
         params['encryptionKeyArn'] = encryption_key_arn
-
-    if verbose:
-        print('Calling CreateMemory API...', flush=True)
 
     response = control_client.create_memory(**params)
     memory = response['memory']
 
     memory_id = memory.get('id', memory.get('memoryId'))
     status = memory.get('status')
-
-    if verbose:
-        print(f'Memory created with ID: {memory_id}, Status: {status}', flush=True)
 
     result_content = [
         {'text': '**Memory Created Successfully**'},
@@ -110,9 +90,6 @@ def _create(
     if wait_for_active and status != 'ACTIVE':
         result_content.append({'text': '\n**Waiting for memory to become ACTIVE...**'})
 
-        if verbose:
-            print(f'Polling for ACTIVE status (max {max_wait}s)...', flush=True)
-
         start_time = time.time()
         while time.time() - start_time < max_wait:
             elapsed = int(time.time() - start_time)
@@ -121,18 +98,11 @@ def _create(
                 status_response = control_client.get_memory(memoryId=memory_id)
                 current_status = status_response['memory']['status']
 
-                if verbose:
-                    print(f'Status check {elapsed}s: {current_status}', flush=True)
-
                 if current_status == 'ACTIVE':
                     result_content.append({'text': f'\n**Memory is ACTIVE** (took {elapsed}s)'})
-                    if verbose:
-                        print(f'Memory is ACTIVE after {elapsed}s!', flush=True)
                     break
                 elif current_status == 'FAILED':
                     failure_reason = status_response['memory'].get('failureReason', 'Unknown')
-                    if verbose:
-                        print(f'Memory creation failed: {failure_reason}')
                     return {
                         'status': 'error',
                         'content': [{'text': f'**Memory creation failed:** {failure_reason}'}],
@@ -140,15 +110,11 @@ def _create(
 
                 time.sleep(10)
             except ClientError as e:
-                if verbose:
-                    print(f'Error checking status: {e}', flush=True)
                 return {
                     'status': 'error',
                     'content': [{'text': f'Error checking status: {str(e)}'}],
                 }
         else:
-            if verbose:
-                print(f'Timeout after {max_wait}s - still provisioning')
             result_content.append(
                 {'text': f'\n**Timeout** after {max_wait}s - memory still provisioning'}
             )
@@ -158,7 +124,6 @@ def _create(
 
 def _get(
     memory_id: str,
-    verbose: bool,
     control_client: Any,
 ) -> Dict[str, Any]:
     """Get memory details."""
@@ -168,14 +133,8 @@ def _get(
             'content': [{'text': 'memory_id is required for get action'}],
         }
 
-    if verbose:
-        print(f'Getting memory details: {memory_id}', flush=True)
-
     response = control_client.get_memory(memoryId=memory_id)
     memory = response['memory']
-
-    if verbose:
-        print(f'Retrieved memory: {memory.get("name")}', flush=True)
 
     return {
         'status': 'success',
@@ -188,13 +147,9 @@ def _get(
 
 def _list(
     max_results: int,
-    verbose: bool,
     control_client: Any,
 ) -> Dict[str, Any]:
     """List all memories."""
-    if verbose:
-        print(f'Listing memories (max {max_results})...', flush=True)
-
     response = control_client.list_memories(maxResults=min(max_results, 100))
     memories = response.get('memories', [])
 
@@ -205,17 +160,11 @@ def _list(
         page += 1
         remaining = max_results - len(memories)
 
-        if verbose:
-            print(f'Fetching page {page} (total: {len(memories)} so far)...')
-
         response = control_client.list_memories(
             maxResults=min(remaining, 100), nextToken=next_token
         )
         memories.extend(response.get('memories', []))
         next_token = response.get('nextToken')
-
-    if verbose:
-        print(f'Found {len(memories)} memories total', flush=True)
 
     return {
         'status': 'success',
@@ -228,7 +177,6 @@ def _list(
 
 def _delete(
     memory_id: str,
-    verbose: bool,
     control_client: Any,
 ) -> Dict[str, Any]:
     """Delete memory resource."""
@@ -238,13 +186,7 @@ def _delete(
             'content': [{'text': 'memory_id is required for delete action'}],
         }
 
-    if verbose:
-        print(f'Deleting memory: {memory_id}', flush=True)
-
     control_client.delete_memory(memoryId=memory_id, clientToken=str(uuid.uuid4()))
-
-    if verbose:
-        print('Memory deleted successfully', flush=True)
 
     return {
         'status': 'success',
@@ -260,7 +202,6 @@ def _create_event(
     actor_id: str,
     session_id: Optional[str],
     event_payload: Optional[Dict[str, Any] | List[Dict[str, Any]]],
-    verbose: bool,
     data_client: Any,
 ) -> Dict[str, Any]:
     """Create memory event for conversation tracking."""
@@ -271,9 +212,6 @@ def _create_event(
                 {'text': 'memory_id, actor_id, and event_payload required for create_event'}
             ],
         }
-
-    if verbose:
-        print(f'Creating event for actor: {actor_id}, session: {session_id}')
 
     # Normalize event_payload format
     if isinstance(event_payload, list):
@@ -307,13 +245,7 @@ def _create_event(
     if session_id:
         params['sessionId'] = session_id
 
-    if verbose:
-        print('Calling CreateEvent API...', flush=True)
-
     response = data_client.create_event(**params)
-
-    if verbose:
-        print('Event created successfully', flush=True)
 
     return {
         'status': 'success',
@@ -330,7 +262,6 @@ def _retrieve(
     namespace: str,
     search_query: str,
     top_k: int,
-    verbose: bool,
     data_client: Any,
 ) -> Dict[str, Any]:
     """Retrieve memories using semantic search."""
@@ -340,10 +271,6 @@ def _retrieve(
             'content': [{'text': 'memory_id, namespace, and search_query required for retrieve'}],
         }
 
-    if verbose:
-        print(f'Retrieving memories from namespace: {namespace}', flush=True)
-        print(f'Search query: {search_query}, top_k: {top_k}', flush=True)
-
     params = {
         'memoryId': memory_id,
         'namespace': namespace,
@@ -352,9 +279,6 @@ def _retrieve(
 
     response = data_client.retrieve_memory_records(**params)
     records = response.get('memoryRecordSummaries', []) #TODO: this should throw an error if there is none there
-
-    if verbose:
-        print(f'Retrieved {len(records)} memory records', flush=True)
 
     return {
         'status': 'success',
@@ -368,7 +292,6 @@ def _retrieve(
 def _list_actors(
     memory_id: str,
     max_results: int,
-    verbose: bool,
     data_client: Any,
 ) -> Dict[str, Any]:
     """List actors in a memory."""
@@ -378,16 +301,10 @@ def _list_actors(
             'content': [{'text': 'memory_id required for list_actors'}],
         }
 
-    if verbose:
-        print(f'Listing actors for memory: {memory_id}', flush=True)
-
     params = {'memoryId': memory_id, 'maxResults': min(max_results, 100)}
 
     response = data_client.list_actors(**params)
     actors = response.get('actorSummaries', [])
-
-    if verbose:
-        print(f'Found {len(actors)} actors', flush=True)
 
     return {
         'status': 'success',
@@ -402,7 +319,6 @@ def _list_sessions(
     memory_id: str,
     actor_id: str,
     max_results: int,
-    verbose: bool,
     data_client: Any,
 ) -> Dict[str, Any]:
     """List sessions for an actor."""
@@ -412,9 +328,6 @@ def _list_sessions(
             'content': [{'text': 'memory_id and actor_id required for list_sessions'}],
         }
 
-    if verbose:
-        print(f'Listing sessions for actor: {actor_id}', flush=True)
-
     params = {
         'memoryId': memory_id,
         'actorId': actor_id,
@@ -423,9 +336,6 @@ def _list_sessions(
 
     response = data_client.list_sessions(**params)
     sessions = response.get('sessionSummaries', [])
-
-    if verbose:
-        print(f'Found {len(sessions)} sessions', flush=True)
 
     return {
         'status': 'success',
@@ -438,7 +348,6 @@ def _list_sessions(
 
 def _get_status(
     memory_id: str,
-    verbose: bool,
     control_client: Any,
 ) -> Dict[str, Any]:
     """Get memory provisioning status."""
@@ -448,14 +357,8 @@ def _get_status(
             'content': [{'text': 'memory_id required for get_status'}],
         }
 
-    if verbose:
-        print(f'Checking status for memory: {memory_id}', flush=True)
-
     response = control_client.get_memory(memoryId=memory_id)
     status = response['memory']['status']
-
-    if verbose:
-        print(f'Memory status: {status}', flush=True)
 
     return {
         'status': 'success',
@@ -485,7 +388,6 @@ def manage_agentcore_memory(
     wait_for_active: bool = False,
     max_wait: int = 300,
     region: str = 'us-west-2',
-    verbose: bool = False,
 ) -> Dict[str, Any]:
     """Manage Bedrock AgentCore Memory resources.
 
@@ -519,7 +421,6 @@ def manage_agentcore_memory(
         wait_for_active: Wait for memory to become ACTIVE after create (default: False)
         max_wait: Maximum wait time in seconds (default: 300)
         region: AWS region (default: us-west-2)
-        verbose: Enable verbose logging with detailed progress (default: False)
 
     Returns:
         Dict with status and operation results
@@ -572,16 +473,10 @@ def manage_agentcore_memory(
         memory(action="delete", memory_id="my-memory-abc123")
     """
 
-    if verbose:
-        print(f'Starting memory operation: {action}', flush=True)
-
     try:
         # Initialize both clients
         control_client = boto3.client('bedrock-agentcore-control', region_name=region)
         data_client = boto3.client('bedrock-agentcore', region_name=region)
-
-        if verbose:
-            print(f'Initialized clients for region: {region}', flush=True)
 
         # Action dispatch registry
         action_handlers: Dict[str, Any] = {
@@ -595,22 +490,18 @@ def manage_agentcore_memory(
                 wait_for_active=wait_for_active,
                 max_wait=max_wait,
                 region=region,
-                verbose=verbose,
                 control_client=control_client,
             ),
             'get': lambda: _get(
                 memory_id=memory_id,
-                verbose=verbose,
                 control_client=control_client,
             ),
             'list': lambda: _list(
                 max_results=max_results,
-                verbose=verbose,
                 control_client=control_client,
             ),
             'delete': lambda: _delete(
                 memory_id=memory_id,
-                verbose=verbose,
                 control_client=control_client,
             ),
             'create_event': lambda: _create_event(
@@ -618,7 +509,6 @@ def manage_agentcore_memory(
                 actor_id=actor_id,
                 session_id=session_id,
                 event_payload=event_payload,
-                verbose=verbose,
                 data_client=data_client,
             ),
             'retrieve': lambda: _retrieve(
@@ -626,25 +516,21 @@ def manage_agentcore_memory(
                 namespace=namespace,
                 search_query=search_query,
                 top_k=top_k,
-                verbose=verbose,
                 data_client=data_client,
             ),
             'list_actors': lambda: _list_actors(
                 memory_id=memory_id,
                 max_results=max_results,
-                verbose=verbose,
                 data_client=data_client,
             ),
             'list_sessions': lambda: _list_sessions(
                 memory_id=memory_id,
                 actor_id=actor_id,
                 max_results=max_results,
-                verbose=verbose,
                 data_client=data_client,
             ),
             'get_status': lambda: _get_status(
                 memory_id=memory_id,
-                verbose=verbose,
                 control_client=control_client,
             ),
         }
@@ -668,9 +554,6 @@ def manage_agentcore_memory(
         error_code = e.response.get('Error', {}).get('Code', 'Unknown')
         error_message = e.response.get('Error', {}).get('Message', str(e))
 
-        if verbose:
-            print(f'AWS Error: {error_code} - {error_message}', flush=True)
-
         return {
             'status': 'error',
             'content': [
@@ -681,9 +564,6 @@ def manage_agentcore_memory(
         }
 
     except Exception as e:
-        if verbose:
-            print(f'Unexpected Error: {str(e)}', flush=True)
-
         return {
             'status': 'error',
             'content': [

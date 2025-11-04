@@ -17,20 +17,10 @@
 Comprehensive identity management for AgentCore agents.
 """
 
-import json
-import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import boto3
 from botocore.exceptions import ClientError
-
-
-logger = logging.getLogger(__name__)
-if not logger.handlers:
-    handler = logging.StreamHandler()
-    handler.setFormatter(logging.Formatter('%(message)s'))
-    logger.addHandler(handler)
-    logger.propagate = False
 
 
 def _format_success_response(title: str, *content_items: Dict[str, Any]) -> Dict[str, Any]:
@@ -51,7 +41,6 @@ def _create_oauth2_provider(
     client_id: Optional[str],
     client_secret: Optional[str],
     discovery_url: Optional[str],
-    verbose: bool,
 ) -> Dict[str, Any]:
     """Create OAuth2 credential provider."""
     if not all([vendor, client_id, client_secret]):
@@ -59,9 +48,6 @@ def _create_oauth2_provider(
             'status': 'error',
             'content': [{'text': 'vendor, client_id, and client_secret required for OAuth2'}],
         }
-
-    if verbose:
-        print(f'Creating OAuth2 provider: {name} ({vendor})', flush=True)
 
     oauth2_config = {}
     if vendor == 'SlackOauth2':
@@ -121,7 +107,6 @@ def _create_api_key_provider(
     client: Any,
     name: str,
     api_key: Optional[str],
-    verbose: bool,
 ) -> Dict[str, Any]:
     """Create API key credential provider."""
     if not api_key:
@@ -129,9 +114,6 @@ def _create_api_key_provider(
             'status': 'error',
             'content': [{'text': 'api_key required for API key provider'}],
         }
-
-    if verbose:
-        print(f'Creating API key provider: {name}', flush=True)
 
     response = client.create_api_key_credential_provider(name=name, apiKey=api_key)
 
@@ -146,12 +128,8 @@ def _get(
     client: Any,
     name: str,
     provider_type: str,
-    verbose: bool,
 ) -> Dict[str, Any]:
     """Get provider details."""
-    if verbose:
-        print(f'Getting {provider_type} provider: {name}', flush=True)
-
     if provider_type == 'oauth2':
         response = client.get_oauth2_credential_provider(name=name)
     elif provider_type == 'api_key':
@@ -175,12 +153,8 @@ def _list(
     client: Any,
     provider_type: str,
     max_results: int,
-    verbose: bool,
 ) -> Dict[str, Any]:
     """List providers."""
-    if verbose:
-        print(f'Listing {provider_type} providers (max {max_results})...', flush=True)
-
     if provider_type == 'oauth2':
         response = client.list_oauth2_credential_providers(maxResults=min(max_results, 100))
         items = response.get('credentialProviders', [])
@@ -206,12 +180,8 @@ def _delete(
     client: Any,
     name: str,
     provider_type: str,
-    verbose: bool,
 ) -> Dict[str, Any]:
     """Delete provider."""
-    if verbose:
-        print(f'Deleting {provider_type} provider: {name}', flush=True)
-
     if provider_type == 'oauth2':
         client.delete_oauth2_credential_provider(name=name)
     elif provider_type == 'api_key':
@@ -242,7 +212,6 @@ def manage_agentcore_identity(
     # Common
     max_results: int = 20,
     region: str = 'us-west-2',
-    verbose: bool = False,
 ) -> Dict[str, Any]:
     """Manage OAuth2 and API key credentials for AgentCore agents.
 
@@ -268,7 +237,6 @@ def manage_agentcore_identity(
         # Common
         max_results: Max results for list (1-100, default: 20)
         region: AWS region (default: us-west-2)
-        verbose: Enable verbose logging (default: False)
 
     Returns:
         Dict with status and operation results
@@ -298,15 +266,8 @@ def manage_agentcore_identity(
         # Delete provider
         identity(action="delete", name="slack-oauth", provider_type="oauth2")
     """
-
-    if verbose:
-        print(f'Starting identity operation: {action} ({provider_type})', flush=True)
-
     try:
         client = boto3.client('bedrock-agentcore-control', region_name=region)
-
-        if verbose:
-            print(f'Initialized client for region: {region}', flush=True)
 
         # Action dispatch registry
         action_handlers: Dict[str, Any] = {
@@ -318,33 +279,28 @@ def manage_agentcore_identity(
                     client_id=client_id,
                     client_secret=client_secret,
                     discovery_url=discovery_url,
-                    verbose=verbose,
                 )
                 if provider_type == 'oauth2'
                 else _create_api_key_provider(
                     client=client,
                     name=name,
                     api_key=api_key,
-                    verbose=verbose,
                 )
             ),
             'get': lambda: _get(
                 client=client,
                 name=name,
                 provider_type=provider_type,
-                verbose=verbose,
             ),
             'list': lambda: _list(
                 client=client,
                 provider_type=provider_type,
                 max_results=max_results,
-                verbose=verbose,
             ),
             'delete': lambda: _delete(
                 client=client,
                 name=name,
                 provider_type=provider_type,
-                verbose=verbose,
             ),
         }
 
@@ -374,9 +330,6 @@ def manage_agentcore_identity(
         error_code = e.response.get('Error', {}).get('Code', 'Unknown')
         error_message = e.response.get('Error', {}).get('Message', str(e))
 
-        if verbose:
-            print(f'AWS Error: {error_code} - {error_message}', flush=True)
-
         return {
             'status': 'error',
             'content': [
@@ -388,9 +341,6 @@ def manage_agentcore_identity(
         }
 
     except Exception as e:
-        if verbose:
-            print(f'Unexpected Error: {str(e)}', flush=True)
-
         return {
             'status': 'error',
             'content': [
