@@ -18,405 +18,32 @@ Comprehensive identity management for AgentCore agents.
 """
 
 import json
+import logging
 from typing import Any, Dict, List, Optional
 
-
-def manage_agentcore_identity(
-    action: str,
-    name: Optional[str] = None,
-    provider_type: str = 'oauth2',
-    # OAuth2 specific
-    vendor: Optional[str] = None,
-    client_id: Optional[str] = None,
-    client_secret: Optional[str] = None,
-    discovery_url: Optional[str] = None,
-    authorization_endpoint: Optional[str] = None,
-    token_endpoint: Optional[str] = None,
-    scopes: Optional[List[str]] = None,
-    # API Key specific
-    api_key: Optional[str] = None,
-    header_name: Optional[str] = None,
-    # Workload Identity specific
-    workload_arn: Optional[str] = None,
-    # Token Vault
-    kms_key_id: Optional[str] = None,
-    # Common
-    max_results: int = 20,
-    region: str = 'us-west-2',
-    verbose: bool = False,
-) -> Dict[str, Any]:
-    """Manage OAuth2, API keys, and workload identities for AgentCore agents.
-
-    Enables agents to securely access external services via OAuth2 flows or API keys.
-    Credentials stored in AWS Secrets Manager with KMS encryption. Use @requires_access_token
-    decorator in agent code for automatic token management.
-
-    Args:
-        action: Operation - create, get, list, delete, update, get_vault, set_vault_key
-        name: Provider name (required for most operations)
-        provider_type: oauth2 (default), api_key, or workload
-
-        # OAuth2 specific
-        vendor: SlackOauth2, GithubOauth2, GoogleOauth2, or CustomOauth2
-        client_id: OAuth2 client ID
-        client_secret: OAuth2 client secret (stored encrypted)
-        discovery_url: OAuth2 discovery URL (for CustomOauth2)
-        authorization_endpoint: Auth endpoint (for CustomOauth2)
-        token_endpoint: Token endpoint (for CustomOauth2)
-        scopes: List of OAuth2 scopes
-
-        # API Key specific
-        api_key: API key value (stored encrypted)
-        header_name: HTTP header name
-
-        # Workload Identity specific
-        workload_arn: Agent runtime ARN
-
-        # Token Vault
-        kms_key_id: KMS key for encryption (optional)
-
-        # Common
-        max_results: Max results for list (1-100, default: 20)
-        region: AWS region (default: us-west-2)
-        verbose: Enable verbose logging (default: False)
-
-    Returns:
-        Dict with status and content:
-        {
-            "status": "success|error",
-            "content": [{"text": "Result message"}]
-        }
-
-    OAuth2 Vendors:
-        - SlackOauth2: Slack OAuth with auto-discovery
-        - GitHubOauth2: GitHub OAuth with auto-discovery
-        - GoogleOauth2: Google OAuth with auto-discovery
-        - CustomOauth2: Custom provider (needs discovery_url)
-
-    IAM Permissions (Agent Execution Role):
-        - bedrock-agentcore:GetResourceOauth2Token
-        - secretsmanager:GetSecretValue
-
-    IAM Permissions (Management Operations):
-        - bedrock-agentcore-control:Create/Get/List/DeleteOAuth2CredentialProvider
-        - bedrock-agentcore-control:Create/Get/List/DeleteApiKeyCredentialProvider
-    """
-    try:
-        import boto3
-        from botocore.exceptions import ClientError
-    except ImportError:
-        return {
-            'status': 'error',
-            'content': [{'text': 'boto3 required. Install: pip install boto3'}],
-        }
-
-    if verbose:
-        print(f'Starting identity operation: {action} ({provider_type})', flush=True)
-
-    try:
-        client = boto3.client('bedrock-agentcore-control', region_name=region)
-
-        if verbose:
-            print(f'Initialized client for region: {region}', flush=True)
-
-        # Route to appropriate operation
-        if action == 'create':
-            if not name:
-                return {
-                    'status': 'error',
-                    'content': [{'text': 'name is required for create action'}],
-                }
-
-            if provider_type == 'oauth2':
-                return _create_oauth2_provider(
-                    client,
-                    name,
-                    vendor,
-                    client_id,
-                    client_secret,
-                    discovery_url,
-                    authorization_endpoint,
-                    token_endpoint,
-                    scopes,
-                    verbose,
-                )
-            elif provider_type == 'api_key':
-                return _create_api_key_provider(client, name, api_key, header_name, verbose)
-            elif provider_type == 'workload':
-                return _create_workload_identity(client, name, workload_arn, verbose)
-            else:
-                return {
-                    'status': 'error',
-                    'content': [
-                        {
-                            'text': f'Unknown provider_type: {provider_type}. Valid: oauth2, api_key, workload'
-                        }
-                    ],
-                }
-
-        elif action == 'get':
-            if not name:
-                return {
-                    'status': 'error',
-                    'content': [{'text': 'name is required for get action'}],
-                }
-
-            if verbose:
-                print(f'Getting {provider_type} provider: {name}', flush=True)
-
-            if provider_type == 'oauth2':
-                response = client.get_oauth2_credential_provider(name=name)
-                result = response
-            elif provider_type == 'api_key':
-                response = client.get_api_key_credential_provider(name=name)
-                result = response
-            elif provider_type == 'workload':
-                response = client.get_workload_identity(name=name)
-                result = response
-            else:
-                return {
-                    'status': 'error',
-                    'content': [
-                        {
-                            'text': f'Unknown provider_type: {provider_type}. Valid: oauth2, api_key, workload'
-                        }
-                    ],
-                }
-
-            if verbose:
-                print(f'Retrieved {provider_type} provider', flush=True)
-
-            return {
-                'status': 'success',
-                'content': [
-                    {'text': f'**{provider_type.upper()} Provider Details:**'},
-                    {'text': json.dumps(result, indent=2, default=str)},
-                ],
-            }
-
-        elif action == 'list':
-            if verbose:
-                print(
-                    f'Listing {provider_type} providers (max {max_results})...',
-                    flush=True,
-                )
-
-            if provider_type == 'oauth2':
-                response = client.list_oauth2_credential_providers(
-                    maxResults=min(max_results, 100)
-                )
-                items = response.get('credentialProviders', [])
-            elif provider_type == 'api_key':
-                response = client.list_api_key_credential_providers(
-                    maxResults=min(max_results, 100)
-                )
-                items = response.get('credentialProviders', [])
-            elif provider_type == 'workload':
-                response = client.list_workload_identities(maxResults=min(max_results, 100))
-                items = response.get('workloadIdentities', [])
-            else:
-                return {
-                    'status': 'error',
-                    'content': [
-                        {
-                            'text': f'Unknown provider_type: {provider_type}. Valid: oauth2, api_key, workload'
-                        }
-                    ],
-                }
-
-            # Handle pagination
-            next_token = response.get('nextToken')
-            while next_token and len(items) < max_results:
-                remaining = max_results - len(items)
-
-                if verbose:
-                    print(
-                        f'Fetching next page (total: {len(items)} so far)...',
-                        flush=True,
-                    )
-
-                if provider_type == 'oauth2':
-                    response = client.list_oauth2_credential_providers(
-                        maxResults=min(remaining, 20), nextToken=next_token
-                    )
-                    items.extend(response.get('credentialProviders', []))
-                elif provider_type == 'api_key':
-                    response = client.list_api_key_credential_providers(
-                        maxResults=min(remaining, 20), nextToken=next_token
-                    )
-                    items.extend(response.get('credentialProviders', []))
-                elif provider_type == 'workload':
-                    response = client.list_workload_identities(
-                        maxResults=min(remaining, 20), nextToken=next_token
-                    )
-                    items.extend(response.get('workloadIdentities', []))
-
-                next_token = response.get('nextToken')
-
-            if verbose:
-                print(f'Found {len(items)} {provider_type} providers', flush=True)
-
-            return {
-                'status': 'success',
-                'content': [
-                    {'text': f'**Found {len(items)} {provider_type} providers:**'},
-                    {'text': json.dumps(items, indent=2, default=str)},
-                ],
-            }
-
-        elif action == 'delete':
-            if not name:
-                return {
-                    'status': 'error',
-                    'content': [{'text': 'name is required for delete action'}],
-                }
-
-            if verbose:
-                print(f'🗑️ Deleting {provider_type} provider: {name}', flush=True)
-
-            if provider_type == 'oauth2':
-                client.delete_oauth2_credential_provider(name=name)
-            elif provider_type == 'api_key':
-                client.delete_api_key_credential_provider(name=name)
-            elif provider_type == 'workload':
-                client.delete_workload_identity(name=name)
-            else:
-                return {
-                    'status': 'error',
-                    'content': [
-                        {
-                            'text': f'Unknown provider_type: {provider_type}. Valid: oauth2, api_key, workload'
-                        }
-                    ],
-                }
-
-            if verbose:
-                print(f'{provider_type} provider deleted', flush=True)
-
-            return {
-                'status': 'success',
-                'content': [
-                    {'text': f'**{provider_type.upper()} Provider Deleted**'},
-                    {'text': f'**Name:** {name}'},
-                ],
-            }
-
-        elif action == 'update':
-            if not name:
-                return {
-                    'status': 'error',
-                    'content': [{'text': 'name is required for update action'}],
-                }
-
-            if verbose:
-                print(f'Updating {provider_type} provider: {name}', flush=True)
-
-            if provider_type == 'oauth2':
-                return _update_oauth2_provider(
-                    client,
-                    name,
-                    client_id,
-                    client_secret,
-                    discovery_url,
-                    authorization_endpoint,
-                    token_endpoint,
-                    scopes,
-                    verbose,
-                )
-            elif provider_type == 'api_key':
-                return _update_api_key_provider(client, name, api_key, header_name, verbose)
-            elif provider_type == 'workload':
-                return _update_workload_identity(client, name, workload_arn, verbose)
-            else:
-                return {
-                    'status': 'error',
-                    'content': [
-                        {
-                            'text': f'Unknown provider_type: {provider_type}. Valid: oauth2, api_key, workload'
-                        }
-                    ],
-                }
-
-        elif action == 'get_vault':
-            if verbose:
-                print('Getting token vault configuration...', flush=True)
-
-            response = client.get_token_vault()
-
-            if verbose:
-                print('Retrieved token vault', flush=True)
-
-            return {
-                'status': 'success',
-                'content': [
-                    {'text': '**Token Vault Configuration:**'},
-                    {'text': json.dumps(response, indent=2, default=str)},
-                ],
-            }
-
-        elif action == 'set_vault_key':
-            if not kms_key_id:
-                return {
-                    'status': 'error',
-                    'content': [{'text': 'kms_key_id is required for set_vault_key'}],
-                }
-
-            if verbose:
-                print('Setting token vault KMS key...', flush=True)
-
-            client.set_token_vault_cmk(keyId=kms_key_id)
-
-            if verbose:
-                print('Token vault KMS key set', flush=True)
-
-            return {
-                'status': 'success',
-                'content': [
-                    {'text': '**Token Vault KMS Key Set**'},
-                    {'text': f'**Key ID:** {kms_key_id}'},
-                ],
-            }
-
-        else:
-            return {
-                'status': 'error',
-                'content': [
-                    {
-                        'text': f'Unknown action: {action}. Valid: create, get, list, delete, update, get_vault, set_vault_key'
-                    }
-                ],
-            }
-
-    except ClientError as e:
-        error_code = e.response.get('Error', {}).get('Code', 'Unknown')
-        error_message = e.response.get('Error', {}).get('Message', str(e))
-
-        if verbose:
-            print(f'AWS Error: {error_code} - {error_message}', flush=True)
-
-        return {
-            'status': 'error',
-            'content': [
-                {'text': f'**AWS Error ({error_code}):** {error_message}'},
-                {'text': f'**Action:** {action}'},
-                {'text': f'**Provider Type:** {provider_type}'},
-            ],
-        }
-
-    except Exception as e:
-        if verbose:
-            print(f'Unexpected Error: {str(e)}', flush=True)
-
-        return {
-            'status': 'error',
-            'content': [
-                {'text': f'**Unexpected Error:** {str(e)}'},
-                {'text': f'**Action:** {action}'},
-            ],
-        }
+import boto3
+from botocore.exceptions import ClientError
 
 
-# Helper functions for create operations
+logger = logging.getLogger(__name__)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter('%(message)s'))
+    logger.addHandler(handler)
+    logger.propagate = False
+
+
+def _format_success_response(title: str, *content_items: Dict[str, Any]) -> Dict[str, Any]:
+    """Format a successful operation response."""
+    return {
+        'status': 'success',
+        'content': [
+            {'text': title},
+            *content_items,
+        ],
+    }
+
+
 def _create_oauth2_provider(
     client: Any,
     name: str,
@@ -424,9 +51,6 @@ def _create_oauth2_provider(
     client_id: Optional[str],
     client_secret: Optional[str],
     discovery_url: Optional[str],
-    authorization_endpoint: Optional[str],
-    token_endpoint: Optional[str],
-    scopes: Optional[List[str]],
     verbose: bool,
 ) -> Dict[str, Any]:
     """Create OAuth2 credential provider."""
@@ -439,9 +63,7 @@ def _create_oauth2_provider(
     if verbose:
         print(f'Creating OAuth2 provider: {name} ({vendor})', flush=True)
 
-    # Build provider config based on vendor
     oauth2_config = {}
-
     if vendor == 'SlackOauth2':
         oauth2_config['slackOauth2ProviderConfig'] = {
             'clientId': client_id,
@@ -463,9 +85,8 @@ def _create_oauth2_provider(
                 'status': 'error',
                 'content': [{'text': 'discovery_url required for CustomOauth2'}],
             }
-        # Complex nested dict - mypy can't infer structure properly
         oauth2_config['customOauth2ProviderConfig'] = {
-            'oauthDiscovery': {'discoveryUrl': discovery_url},  # type: ignore
+            'oauthDiscovery': {'discoveryUrl': discovery_url},
             'clientId': client_id,
             'clientSecret': client_secret,
         }
@@ -485,31 +106,21 @@ def _create_oauth2_provider(
         'oauth2ProviderConfigInput': oauth2_config,
     }
 
-    if verbose:
-        print('Calling CreateOAuth2CredentialProvider API...', flush=True)
-
     response = client.create_oauth2_credential_provider(**params)
 
-    if verbose:
-        print('OAuth2 provider created', flush=True)
-
-    return {
-        'status': 'success',
-        'content': [
-            {'text': '**OAuth2 Credential Provider Created**'},
-            {'text': f'**Name:** {name}'},
-            {'text': f'**Vendor:** {vendor}'},
-            {'text': f'**Callback URL:** {response.get("callbackUrl", "Not available")}'},
-            {'text': f'**ARN:** {response.get("credentialProviderArn")}'},
-        ],
-    }
+    return _format_success_response(
+        '**OAuth2 Credential Provider Created**',
+        {'text': f'**Name:** {name}'},
+        {'text': f'**Vendor:** {vendor}'},
+        {'text': f'**Callback URL:** {response.get("callbackUrl", "Not available")}'},
+        {'text': f'**ARN:** {response.get("credentialProviderArn")}'},
+    )
 
 
 def _create_api_key_provider(
     client: Any,
     name: str,
     api_key: Optional[str],
-    header_name: Optional[str],
     verbose: bool,
 ) -> Dict[str, Any]:
     """Create API key credential provider."""
@@ -522,167 +133,268 @@ def _create_api_key_provider(
     if verbose:
         print(f'Creating API key provider: {name}', flush=True)
 
-    params = {'name': name, 'apiKey': api_key}
+    response = client.create_api_key_credential_provider(name=name, apiKey=api_key)
 
-    if verbose:
-        print('Calling CreateApiKeyCredentialProvider API...', flush=True)
-
-    response = client.create_api_key_credential_provider(**params)
-
-    if verbose:
-        print('API key provider created', flush=True)
-
-    return {
-        'status': 'success',
-        'content': [
-            {'text': '**API Key Credential Provider Created**'},
-            {'text': f'**Name:** {name}'},
-            {'text': f'**ARN:** {response.get("credentialProviderArn")}'},
-        ],
-    }
+    return _format_success_response(
+        '**API Key Credential Provider Created**',
+        {'text': f'**Name:** {name}'},
+        {'text': f'**ARN:** {response.get("credentialProviderArn")}'},
+    )
 
 
-def _create_workload_identity(
-    client: Any, name: str, workload_arn: Optional[str], verbose: bool
-) -> Dict[str, Any]:
-    """Create workload identity."""
-    if verbose:
-        print(f'Creating workload identity: {name}', flush=True)
-
-    params = {'name': name}
-    if workload_arn:
-        params['workloadArn'] = workload_arn
-
-    if verbose:
-        print('Calling CreateWorkloadIdentity API...', flush=True)
-
-    response = client.create_workload_identity(**params)
-
-    if verbose:
-        print('Workload identity created', flush=True)
-
-    return {
-        'status': 'success',
-        'content': [
-            {'text': '**Workload Identity Created**'},
-            {'text': f'**Name:** {name}'},
-            {'text': f'**ARN:** {response.get("workloadIdentityArn")}'},
-        ],
-    }
-
-
-# Helper functions for update operations
-def _update_oauth2_provider(
+def _get(
     client: Any,
     name: str,
-    client_id: Optional[str],
-    client_secret: Optional[str],
-    discovery_url: Optional[str],
-    authorization_endpoint: Optional[str],
-    token_endpoint: Optional[str],
-    scopes: Optional[List[str]],
+    provider_type: str,
     verbose: bool,
 ) -> Dict[str, Any]:
-    """Update OAuth2 credential provider."""
+    """Get provider details."""
     if verbose:
-        print(f'Updating OAuth2 provider: {name}', flush=True)
+        print(f'Getting {provider_type} provider: {name}', flush=True)
 
-    params = {'name': name}
-
-    if client_id:
-        params['clientId'] = client_id
-    if client_secret:
-        params['clientSecret'] = client_secret
-
-    # Build provider config if endpoints provided
-    if discovery_url:
-        params['oauthDiscovery'] = {'discoveryUrl': discovery_url}  # type: ignore[assignment]
-    elif authorization_endpoint and token_endpoint:
-        config = {
-            'authorizationEndpoint': authorization_endpoint,
-            'tokenEndpoint': token_endpoint,
+    if provider_type == 'oauth2':
+        response = client.get_oauth2_credential_provider(name=name)
+    elif provider_type == 'api_key':
+        response = client.get_api_key_credential_provider(name=name)
+    else:
+        return {
+            'status': 'error',
+            'content': [{'text': f'Unknown provider_type: {provider_type}'}],
         }
-        if scopes:
-            config['scopes'] = scopes  # type: ignore[assignment]
-        params['genericOauth2ProviderConfig'] = config  # type: ignore[assignment]
-
-    if verbose:
-        print('Calling UpdateOAuth2CredentialProvider API...', flush=True)
-
-    response = client.update_oauth2_credential_provider(**params)
-
-    if verbose:
-        print('OAuth2 provider updated', flush=True)
 
     return {
         'status': 'success',
         'content': [
-            {'text': '**OAuth2 Credential Provider Updated**'},
-            {'text': f'**Name:** {name}'},
-            {'text': json.dumps(response, indent=2, default=str)},
+            {'text': f'**{provider_type.upper()} Provider Details:**'},
+            {'provider': response},
         ],
     }
 
 
-def _update_api_key_provider(
+def _list(
     client: Any,
-    name: str,
-    api_key: Optional[str],
-    header_name: Optional[str],
+    provider_type: str,
+    max_results: int,
     verbose: bool,
 ) -> Dict[str, Any]:
-    """Update API key credential provider."""
+    """List providers."""
     if verbose:
-        print(f'Updating API key provider: {name}', flush=True)
+        print(f'Listing {provider_type} providers (max {max_results})...', flush=True)
 
-    params = {'name': name}
-    if api_key:
-        params['apiKey'] = api_key
-    if header_name:
-        params['headerName'] = header_name
-
-    if verbose:
-        print('Calling UpdateApiKeyCredentialProvider API...', flush=True)
-
-    response = client.update_api_key_credential_provider(**params)
-
-    if verbose:
-        print('API key provider updated', flush=True)
+    if provider_type == 'oauth2':
+        response = client.list_oauth2_credential_providers(maxResults=min(max_results, 100))
+        items = response.get('credentialProviders', [])
+    elif provider_type == 'api_key':
+        response = client.list_api_key_credential_providers(maxResults=min(max_results, 100))
+        items = response.get('credentialProviders', [])
+    else:
+        return {
+            'status': 'error',
+            'content': [{'text': f'Unknown provider_type: {provider_type}'}],
+        }
 
     return {
         'status': 'success',
         'content': [
-            {'text': '**API Key Credential Provider Updated**'},
-            {'text': f'**Name:** {name}'},
-            {'text': json.dumps(response, indent=2, default=str)},
+            {'text': f'**Found {len(items)} {provider_type} providers:**'},
+            {'providers': items},
         ],
     }
 
 
-def _update_workload_identity(
-    client: Any, name: str, workload_arn: Optional[str], verbose: bool
+def _delete(
+    client: Any,
+    name: str,
+    provider_type: str,
+    verbose: bool,
 ) -> Dict[str, Any]:
-    """Update workload identity."""
+    """Delete provider."""
     if verbose:
-        print(f'Updating workload identity: {name}', flush=True)
+        print(f'Deleting {provider_type} provider: {name}', flush=True)
 
-    params = {'name': name}
-    if workload_arn:
-        params['workloadArn'] = workload_arn
+    if provider_type == 'oauth2':
+        client.delete_oauth2_credential_provider(name=name)
+    elif provider_type == 'api_key':
+        client.delete_api_key_credential_provider(name=name)
+    else:
+        return {
+            'status': 'error',
+            'content': [{'text': f'Unknown provider_type: {provider_type}'}],
+        }
+
+    return _format_success_response(
+        f'**{provider_type.upper()} Provider Deleted**',
+        {'text': f'**Name:** {name}'},
+    )
+
+
+def manage_agentcore_identity(
+    action: str,
+    name: Optional[str] = None,
+    provider_type: str = 'oauth2',
+    # OAuth2 specific
+    vendor: Optional[str] = None,
+    client_id: Optional[str] = None,
+    client_secret: Optional[str] = None,
+    discovery_url: Optional[str] = None,
+    # API Key specific
+    api_key: Optional[str] = None,
+    # Common
+    max_results: int = 20,
+    region: str = 'us-west-2',
+    verbose: bool = False,
+) -> Dict[str, Any]:
+    """Manage OAuth2 and API key credentials for AgentCore agents.
+
+    Args:
+        action: Operation to perform:
+            - "create": Create new credential provider
+            - "get": Get provider details
+            - "list": List all providers
+            - "delete": Delete provider
+
+        name: Provider name (required for most operations)
+        provider_type: oauth2 (default) or api_key
+
+        # OAuth2 specific
+        vendor: SlackOauth2, GithubOauth2, GoogleOauth2, or CustomOauth2
+        client_id: OAuth2 client ID
+        client_secret: OAuth2 client secret (stored encrypted)
+        discovery_url: OAuth2 discovery URL (for CustomOauth2)
+
+        # API Key specific
+        api_key: API key value (stored encrypted)
+
+        # Common
+        max_results: Max results for list (1-100, default: 20)
+        region: AWS region (default: us-west-2)
+        verbose: Enable verbose logging (default: False)
+
+    Returns:
+        Dict with status and operation results
+
+    Examples:
+        # Create OAuth2 provider
+        identity(
+            action="create",
+            name="slack-oauth",
+            provider_type="oauth2",
+            vendor="SlackOauth2",
+            client_id="your-client-id",
+            client_secret="your-client-secret"
+        )
+
+        # Create API key provider
+        identity(
+            action="create",
+            name="api-provider",
+            provider_type="api_key",
+            api_key="your-api-key"
+        )
+
+        # List providers
+        identity(action="list", provider_type="oauth2")
+
+        # Delete provider
+        identity(action="delete", name="slack-oauth", provider_type="oauth2")
+    """
 
     if verbose:
-        print('Calling UpdateWorkloadIdentity API...', flush=True)
+        print(f'Starting identity operation: {action} ({provider_type})', flush=True)
 
-    response = client.update_workload_identity(**params)
+    try:
+        client = boto3.client('bedrock-agentcore-control', region_name=region)
 
-    if verbose:
-        print('Workload identity updated', flush=True)
+        if verbose:
+            print(f'Initialized client for region: {region}', flush=True)
 
-    return {
-        'status': 'success',
-        'content': [
-            {'text': '**Workload Identity Updated**'},
-            {'text': f'**Name:** {name}'},
-            {'text': json.dumps(response, indent=2, default=str)},
-        ],
-    }
+        # Action dispatch registry
+        action_handlers: Dict[str, Any] = {
+            'create': lambda: (
+                _create_oauth2_provider(
+                    client=client,
+                    name=name,
+                    vendor=vendor,
+                    client_id=client_id,
+                    client_secret=client_secret,
+                    discovery_url=discovery_url,
+                    verbose=verbose,
+                )
+                if provider_type == 'oauth2'
+                else _create_api_key_provider(
+                    client=client,
+                    name=name,
+                    api_key=api_key,
+                    verbose=verbose,
+                )
+            ),
+            'get': lambda: _get(
+                client=client,
+                name=name,
+                provider_type=provider_type,
+                verbose=verbose,
+            ),
+            'list': lambda: _list(
+                client=client,
+                provider_type=provider_type,
+                max_results=max_results,
+                verbose=verbose,
+            ),
+            'delete': lambda: _delete(
+                client=client,
+                name=name,
+                provider_type=provider_type,
+                verbose=verbose,
+            ),
+        }
+
+        # Validate required parameters
+        if action in ['create', 'get', 'delete'] and not name:
+            return {
+                'status': 'error',
+                'content': [{'text': f'name is required for {action} action'}],
+            }
+
+        # Dispatch to appropriate handler
+        handler = action_handlers.get(action)
+        if not handler:
+            return {
+                'status': 'error',
+                'content': [
+                    {
+                        'text': f'Unknown action: {action}. Valid: {", ".join(action_handlers.keys())}'
+                    }
+                ],
+            }
+
+        result = handler()
+        return result
+
+    except ClientError as e:
+        error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+        error_message = e.response.get('Error', {}).get('Message', str(e))
+
+        if verbose:
+            print(f'AWS Error: {error_code} - {error_message}', flush=True)
+
+        return {
+            'status': 'error',
+            'content': [
+                {'text': f'**AWS Error ({error_code}):** {error_message}'},
+                {'text': f'**Action:** {action}'},
+                {'text': f'**Provider Type:** {provider_type}'},
+                {'text': f'**Region:** {region}'},
+            ],
+        }
+
+    except Exception as e:
+        if verbose:
+            print(f'Unexpected Error: {str(e)}', flush=True)
+
+        return {
+            'status': 'error',
+            'content': [
+                {'text': f'**Unexpected Error:** {str(e)}'},
+                {'text': f'**Action:** {action}'},
+            ],
+        }
