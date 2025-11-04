@@ -25,6 +25,28 @@ import boto3
 from bedrock_agentcore_starter_toolkit.operations.gateway import GatewayClient
 from botocore.exceptions import ClientError
 
+# Constants
+# list_gateways https://docs.aws.amazon.com/bedrock-agentcore-control/latest/APIReference/API_ListGateways.html
+# list_gateway_targets https://docs.aws.amazon.com/bedrock-agentcore-control/latest/APIReference/API_ListGatewayTargets.html
+MAX_RESULTS_LIST_GATEWAYS = 1000
+
+
+def _get_gateway_id_by_name(name: str, client: Any) -> Optional[str]:
+    """Get gateway ID by name."""
+    next_token = None
+    while True:
+        kwargs: Dict[str, Any] = {'maxResults': MAX_RESULTS_LIST_GATEWAYS}
+        if next_token:
+            kwargs['nextToken'] = next_token
+        resp = client.list_gateways(**kwargs)
+        items = [g for g in resp.get('items', []) if g.get('name') == name]
+        if items:
+            return items[0].get('gatewayId')
+        next_token = resp.get('nextToken')
+        if not next_token:
+            break
+    return None
+
 
 def _create_gateway(
     name: str,
@@ -41,19 +63,16 @@ def _create_gateway(
         }
 
     def _worker() -> None:
-        try:
-            toolkit_client = GatewayClient(region_name=region)
-            json_authorizer_config_inner = ''
-            if authorizer_config:
-                json_authorizer_config_inner = json.loads(authorizer_config)
-            toolkit_client.create_mcp_gateway(
-                name,
-                role_arn,
-                json_authorizer_config_inner,
-                enable_semantic_search,
-            )
-        except Exception:
-            pass
+        toolkit_client = GatewayClient(region_name=region)
+        json_authorizer_config_inner = ''
+        if authorizer_config:
+            json_authorizer_config_inner = json.loads(authorizer_config)
+        toolkit_client.create_mcp_gateway(
+            name,
+            role_arn,
+            json_authorizer_config_inner,
+            enable_semantic_search,
+        )
 
     t = threading.Thread(target=_worker, daemon=True)
     t.start()
@@ -159,16 +178,16 @@ def _list_gateways(
     name: Optional[str],
     max_results: int,
     region: str,
-    control_client: Any,
+    client: Any,
 ) -> Dict[str, Any]:
     """List all gateways."""
     next_token = None
     items = []
     while True:
-        kwargs: Dict[str, Any] = {'maxResults': min(max_results - len(items), 100)}
+        kwargs: Dict[str, Any] = {'maxResults': min(max_results - len(items), MAX_RESULTS_LIST_GATEWAYS)}
         if next_token:
             kwargs['nextToken'] = next_token
-        resp = control_client.list_gateways(**kwargs)
+        resp = client.list_gateways(**kwargs)
         batch = resp.get('items', [])
         if name:
             batch = [g for g in batch if g.get('name') == name]
@@ -190,7 +209,7 @@ def _get_gateway(
     gateway_identifier: Optional[str],
     name: Optional[str],
     region: str,
-    control_client: Any,
+    client: Any,
 ) -> Dict[str, Any]:
     """Get gateway details."""
     if not any([gateway_identifier, name]):
@@ -202,7 +221,7 @@ def _get_gateway(
     # Prefer explicit identifier
     if gateway_identifier:
         try:
-            result = control_client.get_gateway(gatewayIdentifier=gateway_identifier)
+            result = client.get_gateway(gatewayIdentifier=gateway_identifier)
             return {
                 'status': 'success',
                 'content': [
@@ -215,36 +234,23 @@ def _get_gateway(
 
     # Lookup by name
     if name:
-        next_token = None
-        while True:
-            kwargs: Dict[str, Any] = {'maxResults': 100}
-            if next_token:
-                kwargs['nextToken'] = next_token
-            resp = control_client.list_gateways(**kwargs)
-            items = [g for g in resp.get('items', []) if g.get('name') == name]
-            if items:
-                gateway_id = items[0].get('gatewayId')
-                if not gateway_id:
-                    return {
-                        'status': 'error',
-                        'content': [{'text': 'Listed gateway missing gatewayId'}],
-                    }
-                try:
-                    result = control_client.get_gateway(gatewayIdentifier=gateway_id)
-                    return {
-                        'status': 'success',
-                        'content': [
-                            {'text': '**Gateway Details:**'},
-                            {'result': result},
-                        ],
-                    }
-                except Exception as e:
-                    return {'status': 'error', 'content': [{'text': str(e)}]}
-            next_token = resp.get('nextToken')
-            if not next_token:
-                break
-
-        return {'status': 'error', 'content': [{'text': 'No gateway found with that name'}]}
+        gateway_id = _get_gateway_id_by_name(name, client)
+        if not gateway_id:
+            return {
+                'status': 'error',
+                'content': [{'text': f'Gateway not found with name: {name}'}],
+            }
+        try:
+            result = client.get_gateway(gatewayIdentifier=gateway_id)
+            return {
+                'status': 'success',
+                'content': [
+                    {'text': '**Gateway Details:**'},
+                    {'result': result},
+                ],
+            }
+        except Exception as e:
+            return {'status': 'error', 'content': [{'text': str(e)}]}
 
 
 def _delete_gateway(
@@ -252,7 +258,7 @@ def _delete_gateway(
     name: Optional[str],
     gateway_arn: Optional[str],
     region: str,
-    control_client: Any,
+    client: Any,
 ) -> Dict[str, Any]:
     """Delete gateway resource."""
     resolved_id: Optional[str] = None
@@ -261,21 +267,9 @@ def _delete_gateway(
     elif gateway_arn:
         resolved_id = gateway_arn.split('/')[-1]
     elif name:
-        next_token = None
-        while True:
-            kwargs: Dict[str, Any] = {'maxResults': 100}
-            if next_token:
-                kwargs['nextToken'] = next_token
-            resp = control_client.list_gateways(**kwargs)
-            items = [g for g in resp.get('items', []) if g.get('name') == name]
-            if items:
-                resolved_id = items[0].get('gatewayId')
-                break
-            next_token = resp.get('nextToken')
-            if not next_token:
-                break
+        resolved_id = _get_gateway_id_by_name(name, client)
         if not resolved_id:
-            return {'status': 'error', 'content': [{'text': 'No gateway found with that name'}]}
+            return {'status': 'error', 'content': [{'text': f'Gateway not found with name: {name}'}]}
     else:
         return {
             'status': 'error',
@@ -283,7 +277,7 @@ def _delete_gateway(
         }
 
     # Must have zero targets to delete
-    targets_resp = control_client.list_gateway_targets(gatewayIdentifier=resolved_id)
+    targets_resp = client.list_gateway_targets(gatewayIdentifier=resolved_id)
     targets = targets_resp.get('items', [])
     if targets:
         return {
@@ -291,7 +285,7 @@ def _delete_gateway(
             'content': [{'text': f'Gateway has {len(targets)} target(s). Delete them first.'}],
         }
 
-    control_client.delete_gateway(gatewayIdentifier=resolved_id)
+    client.delete_gateway(gatewayIdentifier=resolved_id)
 
     return {
         'status': 'success',
@@ -308,7 +302,7 @@ def _list_targets(
     gateway_arn: Optional[str],
     max_results: int,
     region: str,
-    control_client: Any,
+    client: Any,
 ) -> Dict[str, Any]:
     """List gateway targets."""
     resolved_id: Optional[str] = None
@@ -317,21 +311,9 @@ def _list_targets(
     elif gateway_arn:
         resolved_id = gateway_arn.split('/')[-1]
     elif name:
-        next_token = None
-        while True:
-            kwargs: Dict[str, Any] = {'maxResults': 100}
-            if next_token:
-                kwargs['nextToken'] = next_token
-            resp = control_client.list_gateways(**kwargs)
-            items = [g for g in resp.get('items', []) if g.get('name') == name]
-            if items:
-                resolved_id = items[0].get('gatewayId')
-                break
-            next_token = resp.get('nextToken')
-            if not next_token:
-                break
+        resolved_id = _get_gateway_id_by_name(name, client)
         if not resolved_id:
-            return {'status': 'error', 'content': [{'text': 'No gateway found with that name'}]}
+            return {'status': 'error', 'content': [{'text': f'Gateway not found with name: {name}'}]}
     else:
         return {
             'status': 'error',
@@ -341,10 +323,10 @@ def _list_targets(
     next_token = None
     items = []
     while True:
-        kwargs: Dict[str, Any] = {'gatewayIdentifier': resolved_id}
+        kwargs: Dict[str, Any] = {'gatewayIdentifier': resolved_id, 'maxResults': min(max_results - len(items), MAX_RESULTS_LIST_GATEWAYS) }
         if next_token:
             kwargs['nextToken'] = next_token
-        resp = control_client.list_gateway_targets(**kwargs)
+        resp = client.list_gateway_targets(**kwargs)
         batch = resp.get('items', [])
         items.extend(batch)
         next_token = resp.get('nextToken')
@@ -369,7 +351,7 @@ def _delete_target(
     target_id: Optional[str],
     target_name: Optional[str],
     region: str,
-    control_client: Any,
+    client: Any,
 ) -> Dict[str, Any]:
     """Delete gateway target."""
     resolved_id: Optional[str] = None
@@ -378,21 +360,9 @@ def _delete_target(
     elif gateway_arn:
         resolved_id = gateway_arn.split('/')[-1]
     elif name:
-        next_token = None
-        while True:
-            kwargs: Dict[str, Any] = {'maxResults': 100}
-            if next_token:
-                kwargs['nextToken'] = next_token
-            resp = control_client.list_gateways(**kwargs)
-            items = [g for g in resp.get('items', []) if g.get('name') == name]
-            if items:
-                resolved_id = items[0].get('gatewayId')
-                break
-            next_token = resp.get('nextToken')
-            if not next_token:
-                break
+        resolved_id = _get_gateway_id_by_name(name, client)
         if not resolved_id:
-            return {'status': 'error', 'content': [{'text': 'No gateway found with that name'}]}
+            return {'status': 'error', 'content': [{'text': f'Gateway not found with name: {name}'}]}
     else:
         return {
             'status': 'error',
@@ -401,7 +371,7 @@ def _delete_target(
 
     resolved_target_id = target_id
     if not resolved_target_id and target_name:
-        targets_resp = control_client.list_gateway_targets(gatewayIdentifier=resolved_id)
+        targets_resp = client.list_gateway_targets(gatewayIdentifier=resolved_id)
         for t in targets_resp.get('items', []):
             if t.get('name') == target_name:
                 resolved_target_id = t.get('targetId')
@@ -415,7 +385,7 @@ def _delete_target(
     if not resolved_target_id:
         return {'status': 'error', 'content': [{'text': 'target_id or target_name required'}]}
 
-    control_client.delete_gateway_target(gatewayIdentifier=resolved_id, targetId=resolved_target_id)
+    client.delete_gateway_target(gatewayIdentifier=resolved_id, targetId=resolved_target_id)
 
     return {
         'status': 'success',
@@ -509,7 +479,7 @@ def manage_agentcore_gateway(
     """
     try:
         # Initialize client
-        control_client = boto3.client('bedrock-agentcore-control', region_name=region)
+        client = boto3.client('bedrock-agentcore-control', region_name=region)
 
         # Normalize authorizer_config to JSON string if dict
         auth_cfg_json: Optional[str] = None
@@ -541,20 +511,20 @@ def manage_agentcore_gateway(
                 name=name,
                 max_results=max_results,
                 region=region,
-                control_client=control_client,
+                client=client,
             ),
             'get_gateway': lambda: _get_gateway(
                 gateway_identifier=gateway_identifier,
                 name=name,
                 region=region,
-                control_client=control_client,
+                client=client,
             ),
             'delete_gateway': lambda: _delete_gateway(
                 gateway_identifier=gateway_identifier,
                 name=name,
                 gateway_arn=gateway_arn,
                 region=region,
-                control_client=control_client,
+                client=client,
             ),
             'list_gateway_targets': lambda: _list_targets(
                 gateway_identifier=gateway_identifier,
@@ -562,7 +532,7 @@ def manage_agentcore_gateway(
                 gateway_arn=gateway_arn,
                 max_results=max_results,
                 region=region,
-                control_client=control_client,
+                client=client,
             ),
             'delete_gateway_target': lambda: _delete_target(
                 gateway_identifier=gateway_identifier,
@@ -571,7 +541,7 @@ def manage_agentcore_gateway(
                 target_id=target_id,
                 target_name=target_name,
                 region=region,
-                control_client=control_client,
+                client=client,
             ),
         }
 
