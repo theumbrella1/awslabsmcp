@@ -21,6 +21,9 @@ import json
 import os
 from pathlib import Path
 from typing import Any, Callable, Dict, Literal, Optional
+import boto3
+from botocore.config import Config
+from botocore.exceptions import ClientError
 
 from bedrock_agentcore_starter_toolkit.operations.runtime import (
     configure,
@@ -244,6 +247,100 @@ def _list(
     }
 
 
+def _stop_session(
+    agent_arn: str,
+    session_id: str,
+    qualifier: str,
+    region: Optional[str],
+) -> Dict[str, Any]:
+    """Stop an active runtime session."""
+    # Validate required parameters
+    if not all([agent_arn, session_id, qualifier]):
+        return {
+            'status': 'error',
+            'content': [
+                {
+                    'text': 'agent_arn, session_id, and qualifier are required for stop_session'
+                }
+            ],
+        }
+    
+    # Validate session_id length (AWS requires minimum 33 characters)
+    if len(session_id) < 33:
+        return {
+            'status': 'error',
+            'content': [
+                {
+                    'text': f'Invalid session_id length: {len(session_id)}. Must be at least 33 characters.'
+                }
+            ],
+        }
+    
+    try:
+        # Configure boto3 client with retry logic
+        config = Config(
+            retries={'max_attempts': 3, 'mode': 'standard'},
+            read_timeout=60,
+            connect_timeout=30,
+        )
+
+        # Create data plane client
+        client = boto3.client('bedrock-agentcore', region_name=region or 'us-west-2', config=config)
+
+        # Stop the runtime session
+        response = client.stop_runtime_session(
+            agentRuntimeArn=agent_arn,
+            runtimeSessionId=session_id,
+            qualifier=qualifier,
+        )
+
+        # Get HTTP status code
+        status_code = response.get('ResponseMetadata', {}).get('HTTPStatusCode', 'N/A')
+
+        return {
+            'status': 'success',
+            'content': [
+                {'text': '**Session Stopped Successfully**'},
+                {'text': f'**Session ID:** {session_id}'},
+                {'text': f'**Agent ARN:** {agent_arn}'},
+                {'text': f'**Status Code:** {status_code}'},
+            ],
+        }
+
+    except Exception as e:
+        # Try to handle ClientError specifically
+        if isinstance(e, ClientError):
+            error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+            error_message = e.response.get('Error', {}).get('Message', str(e))
+
+            # Handle session not found gracefully
+            if error_code in ['ResourceNotFoundException', 'NotFound']:
+                return {
+                    'status': 'success',
+                    'content': [
+                        {'text': '**Session Not Found** (may have already been terminated)'},
+                        {'text': f'**Session ID:** {session_id}'},
+                    ],
+                }
+
+            return {
+                'status': 'error',
+                'content': [
+                    {'text': f'**AWS Error ({error_code}):** {error_message}'},
+                    {'text': f'**Session ID:** {session_id}'},
+                    {'text': f'**Agent ARN:** {agent_arn}'},
+                ],
+            }
+
+        return {
+            'status': 'error',
+            'content': [
+                {'text': f'**Unexpected Error:** {str(e)}'},
+                {'text': f'**Session ID:** {session_id}'},
+            ],
+        }
+
+
 def manage_agentcore_runtime(
     action: str,
     current_working_directory: str,
@@ -283,6 +380,8 @@ def manage_agentcore_runtime(
     runtime_type: Optional[str] = "PYTHON_3_13",
     auto_create_s3: bool = True,
     s3_path: Optional[str] = None,
+    agent_arn: Optional[str] = None,
+    qualifier: str = 'DEFAULT',
 ) -> Dict[str, Any]:
     """Manage Bedrock AgentCore agent runtime lifecycle and operations.
 
@@ -294,6 +393,7 @@ def manage_agentcore_runtime(
             - "get_status": Get agent status and runtime details
             - "destroy": Destroy agent and AWS resources
             - "list": List all agent runtimes in the region
+            - "stop_session": Stop an active runtime session
 
         config_path: Path to BedrockAgentCore configuration file (.bedrock_agentcore.yaml)
         agent_name: Name of agent use letters, underscores, numbers, NO HYPHENS (required for configure, or multi-agent projects)
@@ -332,6 +432,8 @@ def manage_agentcore_runtime(
         runtime_type: Python runtime version for direct_code_deploy (e.g., "PYTHON_3_10", "PYTHON_3_11") (default: "PYTHON_3_13")
         auto_create_s3: Whether to auto-create S3 bucket for direct_code_deploy deployment
         s3_path: S3 path for direct_code_deploy deployment
+        agent_arn: Agent ARN (required for stop_session)
+        qualifier: Endpoint qualifier (default: "DEFAULT")
 
     Returns:
         Dict with status and operation results
@@ -379,6 +481,14 @@ def manage_agentcore_runtime(
         runtime(
             action="list",
             region="us-west-2",
+            current_working_directory="/path/to/project"
+        )
+
+        # Stop a session
+        runtime(
+            action="stop_session",
+            agent_arn="arn:aws:bedrock-agentcore:us-west-2:123:runtime/my-agent-abc123",
+            session_id="session-123",
             current_working_directory="/path/to/project"
         )
     """
@@ -444,6 +554,12 @@ def manage_agentcore_runtime(
         'list': lambda: _list(
             region=region,
             max_results=max_results,
+        ),
+        'stop_session': lambda: _stop_session(
+            agent_arn=agent_arn,
+            session_id=session_id,
+            qualifier=qualifier,
+            region=region,
         ),
     }
 
